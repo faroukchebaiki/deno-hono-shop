@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import { jsxRenderer } from "hono/jsx-renderer";
 import { serveStatic } from "hono/middleware";
+import { loadConfig } from "./config/env.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 
 const startTime = Date.now();
 const app = new Hono();
+const { server } = loadConfig();
 
 app.use("/static/*", serveStatic({ root: "./" }));
 
@@ -45,12 +47,13 @@ app.get("/", (c) =>
 app.get("/health", (c) =>
   c.json({
     status: "ok",
+    environment: server.environment,
     uptimeSeconds: Math.round((Date.now() - startTime) / 1000),
     timestamp: new Date().toISOString()
   }),
 );
 
-const port = Number(Deno.env.get("PORT") ?? "8000");
+const port = server.port;
 
 if (import.meta.main) {
   console.log(`Listening on http://localhost:${port}`);
