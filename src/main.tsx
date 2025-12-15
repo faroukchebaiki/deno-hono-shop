@@ -62,14 +62,12 @@ app.get("/health", (c: Context) =>
 const port = server.port;
 const isDenoDeploy = Boolean(Deno.env.get("DENO_DEPLOYMENT_ID"));
 
-if (import.meta.main) {
-  if (isDenoDeploy) {
-    console.log("Listening on platform-assigned port (Deno Deploy)");
-    Deno.serve(app.fetch);
-  } else {
-    console.log(`Listening on http://localhost:${port}`);
-    Deno.serve({ port }, app.fetch);
-  }
-}
-
 export default app;
+
+// Export a fetch handler for edge platforms (e.g., Deno Deploy) to avoid binding ports.
+export const fetch = (request: Request) => app.fetch(request);
+
+if (!isDenoDeploy && import.meta.main) {
+  console.log(`Listening on http://localhost:${port}`);
+  Deno.serve({ port }, app.fetch);
+}
