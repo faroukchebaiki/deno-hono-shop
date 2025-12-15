@@ -1,6 +1,5 @@
 import { Hono } from "hono";
-import { jsxRenderer } from "hono/jsx-renderer";
-import { serveStatic } from "hono/middleware";
+import { jsxRenderer, serveStatic } from "hono/middleware";
 import { loadConfig } from "./config/env.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 

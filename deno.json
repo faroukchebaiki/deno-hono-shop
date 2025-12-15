@@ -14,12 +14,12 @@
     "jsxImportSource": "hono/jsx"
   },
   "imports": {
-    "hono": "https://deno.land/x/hono@v3.12.12/mod.ts",
-    "hono/jsx": "https://deno.land/x/hono@v3.12.12/jsx/index.ts",
-    "hono/jsx/jsx-runtime": "https://deno.land/x/hono@v3.12.12/jsx/jsx-runtime.ts",
-    "hono/jsx/jsx-dev-runtime": "https://deno.land/x/hono@v3.12.12/jsx/jsx-runtime.ts",
-    "hono/jsx-renderer": "https://deno.land/x/hono@v3.12.12/jsx-renderer.ts",
-    "hono/middleware": "https://deno.land/x/hono@v3.12.12/middleware.ts",
+    "hono": "https://deno.land/x/hono@v3.12.0/mod.ts",
+    "hono/jsx": "https://deno.land/x/hono@v3.12.0/jsx/index.ts",
+    "hono/jsx/jsx-runtime": "https://deno.land/x/hono@v3.12.0/jsx/jsx-runtime.ts",
+    "hono/jsx/jsx-dev-runtime": "https://deno.land/x/hono@v3.12.0/jsx/jsx-runtime.ts",
+    "hono/jsx-renderer": "https://deno.land/x/hono@v3.12.0/jsx-renderer.ts",
+    "hono/middleware": "https://deno.land/x/hono@v3.12.0/middleware.ts",
     "@prisma/client": "npm:@prisma/client@5.15.0"
   },
   "deploy": {
