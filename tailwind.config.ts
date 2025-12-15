@@ -1,5 +1,5 @@
-import type { Config } from "npm:tailwindcss@3.4.3/types/config";
-import daisyui from "npm:daisyui@4.11.1";
+import type { Config } from "tailwindcss";
+import daisyui from "daisyui";
 
 export default {
   content: ["./src/**/*.{ts,tsx}"],

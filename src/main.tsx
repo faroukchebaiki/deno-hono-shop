@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
+import type { Child } from "hono/jsx";
 import { jsxRenderer, serveStatic } from "hono/middleware";
 import { loadConfig } from "./config/env.ts";
 import { authMiddleware } from "./middleware/auth.ts";
@@ -6,29 +8,35 @@ import { authMiddleware } from "./middleware/auth.ts";
 const startTime = Date.now();
 const app = new Hono();
 const { server } = loadConfig();
+type LayoutProps = {
+  children?: Child;
+  title?: string;
+};
+
+const Layout = ({ children, title = "Hono Shop" }: LayoutProps) => (
+  <html data-theme="light">
+    <head>
+      <meta charSet="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>{title}</title>
+      <link rel="stylesheet" href="/static/styles.css" />
+    </head>
+    <body class="min-h-screen bg-base-200 text-base-content">
+      {children}
+    </body>
+  </html>
+);
 
 app.use("/static/*", serveStatic({ root: "./" }));
 
 app.use(
   "*",
-  jsxRenderer(({ children, title = "Hono Shop" }) => (
-    <html data-theme="light">
-      <head>
-        <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>{title}</title>
-        <link rel="stylesheet" href="/static/styles.css" />
-      </head>
-      <body class="min-h-screen bg-base-200 text-base-content">
-        {children}
-      </body>
-    </html>
-  )),
+  jsxRenderer(Layout),
 );
 
 app.use("*", authMiddleware);
 
-app.get("/", (c) =>
+app.get("/", (c: Context) =>
   c.render(
     <main class="flex min-h-screen items-center justify-center p-6">
       <div class="max-w-xl space-y-3 rounded-box bg-base-100 p-6 shadow-md">
@@ -38,12 +46,11 @@ app.get("/", (c) =>
           build out the shop.
         </p>
       </div>
-    </main>,
-    { title: "Hono Shop" },
+    </main>
   ),
 );
 
-app.get("/health", (c) =>
+app.get("/health", (c: Context) =>
   c.json({
     status: "ok",
     environment: server.environment,

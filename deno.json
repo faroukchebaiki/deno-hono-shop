@@ -1,9 +1,9 @@
 {
   "tasks": {
     "dev": "deno run -A --watch --env-file=.env src/main.tsx",
-    "dev:css": "deno run -A npm:tailwindcss@3.4.3 -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css --watch",
-    "build:css": "deno run -A npm:tailwindcss@3.4.3 -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css",
-    "prisma:generate": "deno run -A npm:prisma@5.15.0 generate",
+    "dev:css": "pnpm exec tailwindcss -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css --watch",
+    "build:css": "pnpm exec tailwindcss -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css",
+    "prisma:generate": "pnpm exec prisma generate",
     "fmt": "deno fmt",
     "lint": "deno lint",
     "deploy": "deployctl deploy --project=${DEPLOY_PROJECT:-deno-hono-shop} --entrypoint=src/main.tsx"
@@ -18,7 +18,6 @@
     "hono/jsx": "https://deno.land/x/hono@v3.12.0/jsx/index.ts",
     "hono/jsx/jsx-runtime": "https://deno.land/x/hono@v3.12.0/jsx/jsx-runtime.ts",
     "hono/jsx/jsx-dev-runtime": "https://deno.land/x/hono@v3.12.0/jsx/jsx-runtime.ts",
-    "hono/jsx-renderer": "https://deno.land/x/hono@v3.12.0/jsx-renderer.ts",
     "hono/middleware": "https://deno.land/x/hono@v3.12.0/middleware.ts",
     "@prisma/client": "npm:@prisma/client@5.15.0"
   },

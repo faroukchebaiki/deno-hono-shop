@@ -1,12 +1,13 @@
 # deno-hono-shop
 
-Minimal scaffold for a Deno + Hono e-commerce app with SSR, Tailwind/daisyUI, Prisma (Postgres), and Stripe placeholders.
+Minimal scaffold for a Deno + Hono e-commerce app with SSR, Tailwind/daisyUI, Prisma (Postgres), and Stripe placeholders. Tooling uses pnpm for Tailwind/Prisma.
 
 ## Quick start
 
-1) Copy `.env.example` to `.env` and fill values.  
-2) Build CSS: `deno task dev:css` (or one-off `deno task build:css`).  
-3) Run the server: `deno task dev` then visit `http://localhost:8000`.
+1) Install deps: `pnpm install` (Node + pnpm required).  
+2) Copy `.env.example` to `.env` and fill values.  
+3) Build CSS: `deno task dev:css` (pnpm-powered) or one-off `deno task build:css`.  
+4) Run the server: `deno task dev` then visit `http://localhost:8000`.
 
 ## Tooling
 
@@ -20,7 +21,9 @@ Minimal scaffold for a Deno + Hono e-commerce app with SSR, Tailwind/daisyUI, Pr
 ## Development tasks
 
 - `deno task dev` — run server with env loading + watch
-- `deno task dev:css` — watch Tailwind build to `static/styles.css`
-- `deno task build:css` — one-off CSS build
-- `deno task prisma:generate` — generate Prisma client after adding models
+- `deno task dev:css` — watch Tailwind build to `static/styles.css` (uses `pnpm exec tailwindcss`)
+- `deno task build:css` — one-off CSS build (uses `pnpm exec tailwindcss`)
+- `deno task prisma:generate` — generate Prisma client after adding models (uses `pnpm exec prisma`)
 - `deno task fmt` / `deno task lint`
+
+Or use pnpm scripts directly: `pnpm run tailwind:dev`, `pnpm run tailwind:build`, `pnpm run prisma:generate`.
