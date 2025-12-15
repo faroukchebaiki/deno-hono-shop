@@ -27,3 +27,7 @@ Minimal scaffold for a Deno + Hono e-commerce app with SSR, Tailwind/daisyUI, Pr
 - `deno task fmt` / `deno task lint`
 
 Or use pnpm scripts directly: `pnpm run tailwind:dev`, `pnpm run tailwind:build`, `pnpm run prisma:generate`.
+
+## Deploy notes
+
+See `DEPLOYMENT.md` for recommended deploy settings (install `pnpm install`, build `pnpm run tailwind:build`, entrypoint `src/main.tsx`, and required env vars). `deno.json` deploy include ships `package.json` and `pnpm-lock.yaml` so the install step can run in CI/deploy.
