@@ -8,11 +8,11 @@ Intent: ship a production-ready, SSR-only e-commerce experience on Deno Deploy u
 - [x] Base layout: SSR renderer, static middleware, hero/home scaffold, shared styles.
 - [x] Repo hygiene: `.env.example`, `.gitignore`, deploy include list, README/DEPLOYMENT notes.
 
-## Stage 1 — Domain & Schema
-- Model in Prisma: User, Role, Product, ProductVariant, Inventory, Cart, CartItem, Order, OrderItem, Address, Payment (Stripe), WebhookEvent.
-- Add enums: OrderStatus (pending, paid, shipped, refunded, cancelled), Role (customer, staff, admin).
-- Run `deno task prisma:generate`; add seed script for products/admin user (hash placeholder or no-op until auth).
-- Add minimal repository helpers (pure functions) for products and orders; keep DB access thin.
+## Stage 1 — Domain & Schema (✅ done)
+- [x] Model in Prisma: User, Role, Product, ProductVariant, Inventory, Cart, CartItem, Order, OrderItem, Address, Payment (Stripe), WebhookEvent.
+- [x] Add enums: OrderStatus (pending, paid, shipped, refunded, cancelled), Role (customer, staff, admin), plus CartStatus/PaymentStatus.
+- [x] Run `deno task prisma:generate`; add seed script for products/admin user (hash placeholder until auth).
+- [x] Add minimal repository helpers (pure functions) for products and orders; keep DB access thin.
 
 ## Stage 2 — Auth (stateless cookies)
 - Define cookie payload: `sub`, `role`, `exp`, `iat`, `nonce`.
