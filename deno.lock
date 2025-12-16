@@ -503,7 +503,8 @@
   },
   "workspace": {
     "dependencies": [
-      "npm:@prisma/client@5.15.0"
+      "npm:@prisma/client@5.15.0",
+      "npm:@prisma/extension-accelerate@5.15.0"
     ],
     "packageJson": {
       "dependencies": [

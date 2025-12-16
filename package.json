@@ -10,7 +10,8 @@
     "prisma:generate": "prisma generate"
   },
   "dependencies": {
-    "@prisma/client": "5.15.0"
+    "@prisma/client": "5.15.0",
+    "@prisma/extension-accelerate": "5.15.0"
   },
   "devDependencies": {
     "daisyui": "4.11.1",
