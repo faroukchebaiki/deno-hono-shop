@@ -19,3 +19,7 @@ Environment variables required at runtime:
 - `DEPLOY_PROJECT` (optional; defaults to `deno-hono-shop`)
 
 Stripe keys are not required until payments are implemented; add them later if you integrate Stripe.
+
+For Deno Deploy with Prisma Accelerate, also set:
+
+- `PRISMA_ACCELERATE_URL` (Accelerate connection URL for your database)
