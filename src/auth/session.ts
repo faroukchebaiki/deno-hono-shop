@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+import type { Role } from "@prisma/client";
 import { getAuthCookieConfig } from "./config.ts";
 import { decodeJson, encodeJson, randomToken, signHmac, verifyHmac } from "../lib/crypto.ts";
 

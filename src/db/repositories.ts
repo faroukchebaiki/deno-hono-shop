@@ -1,4 +1,4 @@
-import { OrderStatus } from "@prisma/client";
+import type { OrderStatus } from "@prisma/client";
 import { getPrismaClient } from "./client.ts";
 
 const prisma = getPrismaClient();

@@ -19,7 +19,7 @@
     "hono/jsx/jsx-runtime": "https://deno.land/x/hono@v3.12.0/jsx/jsx-runtime.ts",
     "hono/jsx/jsx-dev-runtime": "https://deno.land/x/hono@v3.12.0/jsx/jsx-runtime.ts",
     "hono/middleware": "https://deno.land/x/hono@v3.12.0/middleware.ts",
-    "hono/cookie": "https://deno.land/x/hono@v3.12.0/middleware/cookie/index.ts",
+    "hono/cookie": "https://deno.land/x/hono@v3.12.0/helper/cookie/index.ts",
     "@prisma/client": "npm:@prisma/client@5.15.0"
   },
   "deploy": {

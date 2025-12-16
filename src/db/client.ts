@@ -1,6 +1,8 @@
-import { PrismaClient } from "@prisma/client";
+import Prisma from "@prisma/client";
 
-let prisma: PrismaClient | null = null;
+const { PrismaClient } = Prisma;
+
+let prisma: Prisma.PrismaClient | null = null;
 
 // Lazy singleton to avoid opening multiple database connections.
 export const getPrismaClient = (): PrismaClient => {
