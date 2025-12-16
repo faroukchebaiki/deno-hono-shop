@@ -2,11 +2,11 @@
 
 Intent: ship a production-ready, SSR-only e-commerce experience on Deno Deploy using Hono, Tailwind, daisyUI, Prisma/Postgres, signed-cookie auth, and Stripe Checkout. Keep it minimal, edge-friendly, and easy to extend.
 
-## Stage 0 — Foundations (done/verify)
-- Ensure tasks: `deno task dev`, `deno task dev:css`, `deno task build:css`, `deno task prisma:generate`, `deno task lint`, `deno task fmt`.
-- Env validation: fail fast on missing `DATABASE_URL`, `COOKIE_SECRET`; keep Stripe optional until payments.
-- Base layout: SSR renderer, static middleware, hero/home scaffold, shared styles.
-- Repo hygiene: `.env.example`, `.gitignore`, deploy include list, README/DEPLOYMENT notes.
+## Stage 0 — Foundations (✅ done)
+- [x] Ensure tasks: `deno task dev`, `deno task dev:css`, `deno task build:css`, `deno task prisma:generate`, `deno task lint`, `deno task fmt`.
+- [x] Env validation: fail fast on missing `DATABASE_URL`, `COOKIE_SECRET`; keep Stripe optional until payments.
+- [x] Base layout: SSR renderer, static middleware, hero/home scaffold, shared styles.
+- [x] Repo hygiene: `.env.example`, `.gitignore`, deploy include list, README/DEPLOYMENT notes.
 
 ## Stage 1 — Domain & Schema
 - Model in Prisma: User, Role, Product, ProductVariant, Inventory, Cart, CartItem, Order, OrderItem, Address, Payment (Stripe), WebhookEvent.
