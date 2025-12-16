@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from "hono";
+import { loadConfig } from "../config/env.ts";
 
 export type AuthSession = {
   userId: string;
@@ -12,14 +13,18 @@ export type AuthCookieConfig = {
   secure: boolean;
 };
 
-const fallbackSecret = "replace-me";
+export const getAuthCookieConfig = (): AuthCookieConfig => {
+  const { auth, server } = loadConfig();
+  const isProdLike = server.environment === "production" ||
+    Boolean(Deno.env.get("DENO_DEPLOYMENT_ID"));
 
-export const getAuthCookieConfig = (): AuthCookieConfig => ({
-  name: "session",
-  secret: Deno.env.get("COOKIE_SECRET") ?? fallbackSecret,
-  maxAgeSeconds: 60 * 60 * 24 * 7,
-  secure: true
-});
+  return {
+    name: "session",
+    secret: auth.cookieSecret,
+    maxAgeSeconds: 60 * 60 * 24 * 7,
+    secure: isProdLike
+  };
+};
 
 // Placeholder for stateless signed cookie auth.
 // This middleware currently just passes through and should be replaced with

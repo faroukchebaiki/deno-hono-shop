@@ -16,7 +16,6 @@ Environment variables required at runtime:
 - `PORT` (e.g., `8000` or leave for platform default)
 - `DATABASE_URL` (Postgres connection string)
 - `COOKIE_SECRET` (strong random string)
-- `STRIPE_SECRET_KEY`
-- `STRIPE_PUBLISHABLE_KEY`
-- `STRIPE_WEBHOOK_SECRET`
 - `DEPLOY_PROJECT` (optional; defaults to `deno-hono-shop`)
+
+Stripe keys are not required until payments are implemented; add them later if you integrate Stripe.

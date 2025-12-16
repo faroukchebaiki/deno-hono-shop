@@ -29,13 +29,21 @@ const numberFromEnv = (value: string | undefined, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const requireEnv = (name: string): string => {
+  const value = Deno.env.get(name)?.trim();
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+};
+
 export const loadConfig = (): AppConfig => ({
   server: {
     port: numberFromEnv(Deno.env.get("PORT"), 8000),
     environment: Deno.env.get("APP_ENV") ?? "development"
   },
   database: {
-    url: Deno.env.get("DATABASE_URL") ?? ""
+    url: requireEnv("DATABASE_URL")
   },
   stripe: {
     secretKey: Deno.env.get("STRIPE_SECRET_KEY") ?? "",
@@ -43,6 +51,6 @@ export const loadConfig = (): AppConfig => ({
     webhookSecret: Deno.env.get("STRIPE_WEBHOOK_SECRET") ?? ""
   },
   auth: {
-    cookieSecret: Deno.env.get("COOKIE_SECRET") ?? ""
+    cookieSecret: requireEnv("COOKIE_SECRET")
   }
 });
