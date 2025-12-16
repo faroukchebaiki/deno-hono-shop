@@ -1,45 +1,77 @@
 import type { MiddlewareHandler } from "hono";
-import { loadConfig } from "../config/env.ts";
+import { deleteCookie, getCookie } from "hono/cookie";
+import { Role } from "@prisma/client";
+import { getAuthCookieConfig } from "../auth/config.ts";
+import { createSessionToken, verifySessionToken } from "../auth/session.ts";
+import { userRepository } from "../db/repositories.ts";
 
-export type AuthSession = {
-  userId: string;
-  issuedAt: number;
+export type AuthUser = {
+  id: string;
+  role: Role;
+  email?: string;
 };
 
 export type AuthCookieConfig = {
   name: string;
-  secret: string;
+  cookieSecret: string;
   maxAgeSeconds: number;
   secure: boolean;
 };
 
-export const getAuthCookieConfig = (): AuthCookieConfig => {
-  const { auth, server } = loadConfig();
-  const isProdLike = server.environment === "production" ||
-    Boolean(Deno.env.get("DENO_DEPLOYMENT_ID"));
+const cookieAttributes = (secure: boolean, maxAgeSeconds?: number) => ({
+  httpOnly: true,
+  sameSite: "Lax" as const,
+  secure,
+  path: "/",
+  maxAge: maxAgeSeconds
+});
 
-  return {
-    name: "session",
-    secret: auth.cookieSecret,
-    maxAgeSeconds: 60 * 60 * 24 * 7,
-    secure: isProdLike
-  };
-};
-
-// Placeholder for stateless signed cookie auth.
-// This middleware currently just passes through and should be replaced with
-// actual verification + session handling when business logic is added.
-export const authMiddleware: MiddlewareHandler = async (_c, next) => {
-  await next();
-};
-
-// Placeholder helpers for future stateless authentication flows.
-export const issueAuthCookie = (_session: AuthSession) => {
-  const { name } = getAuthCookieConfig();
-  return { name, value: "", attributes: {} };
+export const issueAuthCookie = async (userId: string, role: Role) => {
+  const { name, secure, maxAgeSeconds } = getAuthCookieConfig();
+  const value = await createSessionToken(userId, role, maxAgeSeconds);
+  return { name, value, attributes: cookieAttributes(secure, maxAgeSeconds) };
 };
 
 export const clearAuthCookie = () => {
-  const { name } = getAuthCookieConfig();
-  return { name, value: "", attributes: { expires: new Date(0) } };
+  const { name, secure } = getAuthCookieConfig();
+  return { name, value: "", attributes: { ...cookieAttributes(secure), expires: new Date(0) } };
+};
+
+export const authMiddleware: MiddlewareHandler = async (c, next) => {
+  const { name, secure } = getAuthCookieConfig();
+  const token = getCookie(c, name);
+  if (!token) return await next();
+
+  const payload = await verifySessionToken(token);
+  if (!payload) {
+    deleteCookie(c, name, { path: "/", secure, sameSite: "Lax" });
+    return await next();
+  }
+
+  const user = await userRepository.findActiveById(payload.sub);
+  if (!user) {
+    deleteCookie(c, name, { path: "/", secure, sameSite: "Lax" });
+    return await next();
+  }
+
+  const authUser: AuthUser = { id: user.id, role: user.role, email: user.email ?? undefined };
+  c.set("user", authUser);
+  await next();
+};
+
+export const requireUser = (): MiddlewareHandler => async (c, next) => {
+  const user = c.get("user") as AuthUser | undefined;
+  if (!user) {
+    const returnTo = encodeURIComponent(c.req.path || "/");
+    return c.redirect(`/auth/login?returnTo=${returnTo}`);
+  }
+  return await next();
+};
+
+export const requireRole = (roles: Role[]): MiddlewareHandler => async (c, next) => {
+  const user = c.get("user") as AuthUser | undefined;
+  if (!user || !roles.includes(user.role)) {
+    return c.text("Forbidden", 403);
+  }
+  return await next();
 };

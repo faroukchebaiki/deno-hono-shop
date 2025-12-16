@@ -3,6 +3,25 @@ import { getPrismaClient } from "./client.ts";
 
 const prisma = getPrismaClient();
 
+export const userRepository = {
+  findByEmail: (email: string) =>
+    prisma.user.findFirst({
+      where: { email, isActive: true }
+    }),
+  findActiveById: (id: string) =>
+    prisma.user.findFirst({
+      where: { id, isActive: true }
+    }),
+  create: (email: string, passwordHash: string, name?: string) =>
+    prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        name
+      }
+    })
+};
+
 export const productRepository = {
   listActive: (limit = 24) =>
     prisma.product.findMany({

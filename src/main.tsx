@@ -2,8 +2,10 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Child } from "hono/jsx";
 import { jsxRenderer, serveStatic } from "hono/middleware";
+import { Role } from "@prisma/client";
 import { loadConfig } from "./config/env.ts";
-import { authMiddleware } from "./middleware/auth.ts";
+import { authMiddleware, requireRole, requireUser } from "./middleware/auth.ts";
+import { authRoutes } from "./routes/auth.tsx";
 
 const startTime = Date.now();
 const app = new Hono();
@@ -123,6 +125,7 @@ app.use(
 );
 
 app.use("*", authMiddleware);
+app.route("/auth", authRoutes);
 
 const formatPrice = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -422,6 +425,34 @@ const ShopHomePage = () => {
 };
 
 app.get("/", (c: Context) => c.render(<ShopHomePage />));
+
+app.get("/account", requireUser(), (c: Context) =>
+  c.render(
+    <main class="mx-auto max-w-4xl px-4 py-10">
+      <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-[0.18em] text-primary">Account</p>
+        <h1 class="text-3xl font-semibold">Account dashboard</h1>
+        <p class="mt-2 text-base-content/70">
+          Welcome back. Replace this placeholder with order history, profile details, and saved
+          addresses.
+        </p>
+      </div>
+    </main>
+  ));
+
+app.get("/admin", requireRole([Role.ADMIN]), (c: Context) =>
+  c.render(
+    <main class="mx-auto max-w-4xl px-4 py-10">
+      <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-[0.18em] text-primary">Admin</p>
+        <h1 class="text-3xl font-semibold">Admin dashboard</h1>
+        <p class="mt-2 text-base-content/70">
+          Admin-only area for managing products, orders, and users. Fill this in during the admin
+          stage.
+        </p>
+      </div>
+    </main>
+  ));
 
 app.get("/health", (c: Context) =>
   c.json({

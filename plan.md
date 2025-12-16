@@ -14,13 +14,12 @@ Intent: ship a production-ready, SSR-only e-commerce experience on Deno Deploy u
 - [x] Run `deno task prisma:generate`; add seed script for products/admin user (hash placeholder until auth).
 - [x] Add minimal repository helpers (pure functions) for products and orders; keep DB access thin.
 
-## Stage 2 — Auth (stateless cookies)
-- Define cookie payload: `sub`, `role`, `exp`, `iat`, `nonce`.
-- Sign/verify with HMAC (crypto.subtle) using `COOKIE_SECRET`; rotate via key version field if needed.
-- Middleware: parse + verify cookie, attach `c.set("user", …)`, short-circuit unauthorized.
-- Routes: login, register (hash passwords with bcrypt), logout; forms SSR.
-- Guards: `requireUser`, `requireRole(["admin","staff"])` for `/account/*` and `/admin/*`.
-- CSRF: double-submit token for POST forms; ensure `SameSite=Lax`, `HttpOnly`, `Secure` toggled by environment.
+## Stage 2 — Auth (stateless cookies) (✅ done)
+- [x] Define cookie payload: `sub`, `role`, `exp`, `iat`, `nonce`; HMAC-sign with `COOKIE_SECRET`.
+- [x] Middleware: verify cookie, hydrate user from DB, attach `c.set("user", …)`, clear invalid tokens.
+- [x] Routes: login/register/logout SSR forms, password hashing (PBKDF2), invalid states handled gracefully.
+- [x] Guards: `requireUser`, `requireRole` protecting `/account` and `/admin` placeholders.
+- [x] CSRF: double-submit token cookie + hidden field; cookies `HttpOnly`, `SameSite=Lax`, `Secure` in prod-ish.
 
 ## Stage 3 — Catalog & Public Pages
 - Public routes: Home, Products list (paginate + filter by category), Product detail, About, Contact, Terms, Privacy.
