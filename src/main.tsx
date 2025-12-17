@@ -2,10 +2,10 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Child } from "hono/jsx";
 import { jsxRenderer, serveStatic } from "hono/middleware";
-import Prisma from "@prisma/client";
 import { loadConfig } from "./config/env.ts";
 import { authMiddleware, requireRole, requireUser } from "./middleware/auth.ts";
 import { authRoutes } from "./routes/auth.tsx";
+import { Role } from "./types/domain.ts";
 
 const startTime = Date.now();
 const app = new Hono();
@@ -439,8 +439,6 @@ app.get("/account", requireUser(), (c: Context) =>
       </div>
     </main>
   ));
-
-const { Role } = Prisma;
 
 app.get("/admin", requireRole([Role.ADMIN]), (c: Context) =>
   c.render(

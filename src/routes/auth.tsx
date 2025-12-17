@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { setCookie } from "hono/cookie";
-import type { Role } from "@prisma/client";
 import type { Child } from "hono/jsx";
+import type { Role } from "../types/domain.ts";
 import { ensureCsrfToken, validateCsrf } from "../auth/csrf.ts";
 import { issueAuthCookie, clearAuthCookie } from "../middleware/auth.ts";
 import { hashPassword, verifyPassword } from "../lib/crypto.ts";

@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie } from "hono/cookie";
-import type { Role } from "@prisma/client";
+import type { Role } from "../types/domain.ts";
 import { getAuthCookieConfig } from "../auth/config.ts";
 import { createSessionToken, verifySessionToken } from "../auth/session.ts";
 import { userRepository } from "../db/repositories.ts";

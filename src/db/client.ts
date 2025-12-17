@@ -1,25 +1,15 @@
-import type { PrismaClient as NodePrismaClient } from "@prisma/client";
-import type { PrismaClient as EdgePrismaClient } from "@prisma/client/edge";
+import { neon } from "@neondatabase/serverless";
 
-let prisma: NodePrismaClient | EdgePrismaClient | null = null;
+export type SqlClient = ReturnType<typeof neon>;
 
-const createClient = async () => {
-  if (prisma) return prisma;
+let sqlClient: SqlClient | null = null;
 
-  const accelerateUrl = Deno.env.get("PRISMA_ACCELERATE_URL");
-  if (accelerateUrl) {
-    const { PrismaClient } = await import("@prisma/client/edge");
-    const { withAccelerate } = await import("@prisma/extension-accelerate");
-    prisma = new PrismaClient({
-      datasourceUrl: accelerateUrl
-    }).$extends(withAccelerate());
-  } else {
-    const { PrismaClient } = await import("@prisma/client");
-    prisma = new PrismaClient() as unknown as NodePrismaClient;
+export const getDb = (): SqlClient => {
+  if (sqlClient) return sqlClient;
+  const url = Deno.env.get("DATABASE_URL");
+  if (!url) {
+    throw new Error("DATABASE_URL is required to connect to the database.");
   }
-
-  return prisma;
+  sqlClient = neon(url);
+  return sqlClient;
 };
-
-export const getPrismaClient = (): Promise<NodePrismaClient | EdgePrismaClient> =>
-  createClient();

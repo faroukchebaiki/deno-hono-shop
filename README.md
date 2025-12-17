@@ -1,6 +1,6 @@
 # deno-hono-shop
 
-Minimal scaffold for a Deno + Hono e-commerce app with SSR, Tailwind/daisyUI, Prisma (Postgres), and Stripe placeholders. Tooling uses pnpm for Tailwind/Prisma.
+Minimal scaffold for a Deno + Hono e-commerce app with SSR, Tailwind/daisyUI, Neon Postgres, and Stripe placeholders. Tooling uses pnpm for Tailwind.
 
 ## Quick start
 
@@ -13,7 +13,7 @@ Minimal scaffold for a Deno + Hono e-commerce app with SSR, Tailwind/daisyUI, Pr
 
 - Runtime: Deno with Hono (SSR via JSX renderer)
 - Styling: Tailwind CSS + daisyUI (see `tailwind.config.ts`)
-- Data: Prisma with Postgres datasource (`prisma/schema.prisma`)
+- Data: Neon Postgres client (serverless-friendly)
 - Auth: placeholder stateless signed-cookie middleware (`src/middleware/auth.ts`)
 - Payments: Stripe config scaffold (`src/config/stripe.ts`)
 - Deploy: `deno task deploy` (requires `deployctl`)
@@ -23,7 +23,6 @@ Minimal scaffold for a Deno + Hono e-commerce app with SSR, Tailwind/daisyUI, Pr
 - `deno task dev` — run server with env loading + watch
 - `deno task dev:css` — watch Tailwind build to `static/styles.css` (uses `pnpm exec tailwindcss`)
 - `deno task build:css` — one-off CSS build (uses `pnpm exec tailwindcss`)
-- `deno task prisma:generate` — generate Prisma client after adding models (uses `pnpm exec prisma`)
 - `deno task fmt` / `deno task lint`
 
 Or use pnpm scripts directly: `pnpm run tailwind:dev`, `pnpm run tailwind:build`, `pnpm run prisma:generate`.
@@ -32,4 +31,4 @@ Or use pnpm scripts directly: `pnpm run tailwind:dev`, `pnpm run tailwind:build`
 
 See `DEPLOYMENT.md` for recommended deploy settings (install `pnpm install`, build `pnpm run tailwind:build`, entrypoint `src/main.tsx`, and required env vars). `deno.json` deploy include ships `package.json` and `pnpm-lock.yaml` so the install step can run in CI/deploy.
 
-For Deno Deploy with Prisma Accelerate, set `PRISMA_ACCELERATE_URL` along with `DATABASE_URL`. If you use Accelerate, also set `PRISMA_CLIENT_ENGINE_TYPE=dataproxy` in the Deploy environment.
+For Deno Deploy, ensure `DATABASE_URL` is set (Neon serverless connection string).

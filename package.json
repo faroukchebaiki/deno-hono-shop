@@ -7,16 +7,13 @@
   "scripts": {
     "tailwind:dev": "tailwindcss -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css --watch",
     "tailwind:build": "tailwindcss -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css",
-    "prisma:generate": "prisma generate",
-    "postinstall": "prisma generate"
+    "postinstall": "echo \"no-op postinstall\""
   },
   "dependencies": {
-    "@prisma/client": "5.15.0",
-    "@prisma/extension-accelerate": "3.0.1"
+    "@neondatabase/serverless": "0.8.1"
   },
   "devDependencies": {
     "daisyui": "4.11.1",
-    "prisma": "5.15.0",
     "tailwindcss": "3.4.3"
   }
 }
