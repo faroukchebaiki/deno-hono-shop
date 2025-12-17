@@ -32,4 +32,4 @@ Or use pnpm scripts directly: `pnpm run tailwind:dev`, `pnpm run tailwind:build`
 
 See `DEPLOYMENT.md` for recommended deploy settings (install `pnpm install`, build `pnpm run tailwind:build`, entrypoint `src/main.tsx`, and required env vars). `deno.json` deploy include ships `package.json` and `pnpm-lock.yaml` so the install step can run in CI/deploy.
 
-For Deno Deploy with Prisma Accelerate, set `PRISMA_ACCELERATE_URL` along with `DATABASE_URL`.
+For Deno Deploy with Prisma Accelerate, set `PRISMA_ACCELERATE_URL` along with `DATABASE_URL`. If you use Accelerate, also set `PRISMA_CLIENT_ENGINE_TYPE=dataproxy` in the Deploy environment.

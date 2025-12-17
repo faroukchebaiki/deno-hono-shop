@@ -23,3 +23,4 @@ Stripe keys are not required until payments are implemented; add them later if y
 For Deno Deploy with Prisma Accelerate, also set:
 
 - `PRISMA_ACCELERATE_URL` (Accelerate connection URL for your database)
+- `PRISMA_CLIENT_ENGINE_TYPE=dataproxy`
