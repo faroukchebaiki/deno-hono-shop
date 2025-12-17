@@ -1,3 +1,13 @@
-export type Role = "CUSTOMER" | "STAFF" | "ADMIN";
+export enum Role {
+  CUSTOMER = "CUSTOMER",
+  STAFF = "STAFF",
+  ADMIN = "ADMIN"
+}
 
-export type OrderStatus = "PENDING" | "PAID" | "SHIPPED" | "REFUNDED" | "CANCELLED";
+export enum OrderStatus {
+  PENDING = "PENDING",
+  PAID = "PAID",
+  SHIPPED = "SHIPPED",
+  REFUNDED = "REFUNDED",
+  CANCELLED = "CANCELLED"
+}
