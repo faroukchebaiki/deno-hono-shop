@@ -7,7 +7,8 @@
   "scripts": {
     "tailwind:dev": "tailwindcss -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css --watch",
     "tailwind:build": "tailwindcss -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css",
-    "prisma:generate": "prisma generate"
+    "prisma:generate": "prisma generate",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "5.15.0",
