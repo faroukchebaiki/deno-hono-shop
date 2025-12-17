@@ -33,7 +33,7 @@ type OrderRow = {
 
 export const userRepository = {
   findByEmail: async (email: string) => {
-    const sql = getDb();
+    const sql = await getDb();
     const rows = await sql<UserRow>`
       select "id", "email", "name", "role", "passwordHash", "isActive"
       from "User"
@@ -43,7 +43,7 @@ export const userRepository = {
     return rows[0];
   },
   findActiveById: async (id: string) => {
-    const sql = getDb();
+    const sql = await getDb();
     const rows = await sql<UserRow>`
       select "id", "email", "name", "role", "passwordHash", "isActive"
       from "User"
@@ -53,7 +53,7 @@ export const userRepository = {
     return rows[0];
   },
   create: async (email: string, passwordHash: string, name?: string) => {
-    const sql = getDb();
+    const sql = await getDb();
     const rows = await sql<UserRow>`
       insert into "User" ("email", "passwordHash", "name", "role", "isActive")
       values (${email}, ${passwordHash}, ${name ?? null}, 'CUSTOMER', true)
@@ -65,7 +65,7 @@ export const userRepository = {
 
 export const productRepository = {
   listActive: async (limit = 24) => {
-    const sql = getDb();
+    const sql = await getDb();
     const rows = await sql<ProductRow>`
       select "id", "slug", "name", "description", "category", "priceCents", "currency", "active", "images", "createdAt"
       from "Product"
@@ -76,7 +76,7 @@ export const productRepository = {
     return rows;
   },
   findBySlug: async (slug: string) => {
-    const sql = getDb();
+    const sql = await getDb();
     const rows = await sql<ProductRow>`
       select "id", "slug", "name", "description", "category", "priceCents", "currency", "active", "images", "createdAt"
       from "Product"
@@ -89,7 +89,7 @@ export const productRepository = {
 
 export const orderRepository = {
   listByUser: async (userId: string) => {
-    const sql = getDb();
+    const sql = await getDb();
     const rows = await sql<OrderRow>`
       select "id", "userId", "status", "createdAt", "updatedAt"
       from "Order"
@@ -99,7 +99,7 @@ export const orderRepository = {
     return rows;
   },
   findById: async (id: string) => {
-    const sql = getDb();
+    const sql = await getDb();
     const rows = await sql<OrderRow>`
       select "id", "userId", "status", "createdAt", "updatedAt"
       from "Order"
@@ -109,7 +109,7 @@ export const orderRepository = {
     return rows[0];
   },
   updateStatus: async (id: string, status: OrderStatus) => {
-    const sql = getDb();
+    const sql = await getDb();
     const rows = await sql<OrderRow>`
       update "Order"
       set "status" = ${status}, "updatedAt" = now()
