@@ -2,6 +2,8 @@
   "tasks": {
     "dev": "deno run -A --watch --env-file=.env src/main.tsx",
     "warmup": "deno run -A --env-file=.env scripts/warmup.ts",
+    "db:init": "deno run -A --env-file=.env scripts/db/init.ts",
+    "db:seed": "deno run -A --env-file=.env scripts/db/seed_demo.ts",
     "dev:css": "pnpm exec tailwindcss -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css --watch",
     "build:css": "pnpm exec tailwindcss -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css",
     "fmt": "deno fmt",
@@ -28,7 +30,6 @@
     "include": [
       "src",
       "static",
-      "prisma",
       "deno.json",
       "tailwind.config.ts",
       "package.json",
@@ -36,10 +37,8 @@
     ]
   },
   "fmt": {
-    "files": {
-      "exclude": [
-        "static/styles.css"
-      ]
-    }
+    "exclude": [
+      "static/styles.css"
+    ]
   }
 }

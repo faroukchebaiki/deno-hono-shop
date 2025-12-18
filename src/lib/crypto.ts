@@ -4,7 +4,10 @@ const decoder = new TextDecoder();
 const toBase64Url = (bytes: Uint8Array): string => {
   let binary = "";
   bytes.forEach((b) => (binary += String.fromCharCode(b)));
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(
+    /=+$/,
+    "",
+  );
 };
 
 const fromBase64Url = (input: string): Uint8Array => {
@@ -30,22 +33,29 @@ const timingSafeEqual = (a: Uint8Array, b: Uint8Array): boolean => {
 export const randomToken = (bytes = 16): string =>
   toBase64Url(crypto.getRandomValues(new Uint8Array(bytes)));
 
-export const signHmac = async (message: string, secret: string): Promise<string> => {
+export const signHmac = async (
+  message: string,
+  secret: string,
+): Promise<string> => {
   const key = await crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"]
+    ["sign"],
   );
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(message),
+  );
   return toBase64Url(new Uint8Array(signature));
 };
 
 export const verifyHmac = async (
   message: string,
   signature: string,
-  secret: string
+  secret: string,
 ): Promise<boolean> => {
   const expected = await signHmac(message, secret);
   return timingSafeEqual(fromBase64Url(expected), fromBase64Url(signature));
@@ -53,7 +63,7 @@ export const verifyHmac = async (
 
 export const hashPassword = async (
   password: string,
-  iterations = 100_000
+  iterations = 100_000,
 ): Promise<string> => {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const keyMaterial = await crypto.subtle.importKey(
@@ -61,23 +71,28 @@ export const hashPassword = async (
     encoder.encode(password),
     "PBKDF2",
     false,
-    ["deriveBits"]
+    ["deriveBits"],
   );
   const derived = await crypto.subtle.deriveBits(
     {
       name: "PBKDF2",
       hash: "SHA-256",
       salt,
-      iterations
+      iterations,
     },
     keyMaterial,
-    256
+    256,
   );
   const hash = new Uint8Array(derived);
-  return `pbkdf2-sha256:${iterations}:${toBase64Url(salt)}:${toBase64Url(hash)}`;
+  return `pbkdf2-sha256:${iterations}:${toBase64Url(salt)}:${
+    toBase64Url(hash)
+  }`;
 };
 
-export const verifyPassword = async (password: string, stored: string): Promise<boolean> => {
+export const verifyPassword = async (
+  password: string,
+  stored: string,
+): Promise<boolean> => {
   const parts = stored.split(":");
   if (parts.length !== 4 || parts[0] !== "pbkdf2-sha256") return false;
   const iterations = Number(parts[1]);
@@ -91,17 +106,17 @@ export const verifyPassword = async (password: string, stored: string): Promise<
     encoder.encode(password),
     "PBKDF2",
     false,
-    ["deriveBits"]
+    ["deriveBits"],
   );
   const derived = await crypto.subtle.deriveBits(
     {
       name: "PBKDF2",
       hash: "SHA-256",
       salt,
-      iterations
+      iterations,
     },
     keyMaterial,
-    expectedHash.length * 8
+    expectedHash.length * 8,
   );
   const hash = new Uint8Array(derived);
   return timingSafeEqual(expectedHash, hash);

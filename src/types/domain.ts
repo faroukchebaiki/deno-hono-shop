@@ -1,7 +1,7 @@
 export enum Role {
   CUSTOMER = "CUSTOMER",
   STAFF = "STAFF",
-  ADMIN = "ADMIN"
+  ADMIN = "ADMIN",
 }
 
 export enum OrderStatus {
@@ -9,5 +9,5 @@ export enum OrderStatus {
   PAID = "PAID",
   SHIPPED = "SHIPPED",
   REFUNDED = "REFUNDED",
-  CANCELLED = "CANCELLED"
+  CANCELLED = "CANCELLED",
 }

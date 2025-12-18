@@ -23,7 +23,7 @@ const cookieAttributes = (secure: boolean, maxAgeSeconds?: number) => ({
   sameSite: "Lax" as const,
   secure,
   path: "/",
-  maxAge: maxAgeSeconds
+  maxAge: maxAgeSeconds,
 });
 
 export const issueAuthCookie = async (userId: string, role: Role) => {
@@ -34,7 +34,11 @@ export const issueAuthCookie = async (userId: string, role: Role) => {
 
 export const clearAuthCookie = () => {
   const { name, secure } = getAuthCookieConfig();
-  return { name, value: "", attributes: { ...cookieAttributes(secure), expires: new Date(0) } };
+  return {
+    name,
+    value: "",
+    attributes: { ...cookieAttributes(secure), expires: new Date(0) },
+  };
 };
 
 export const authMiddleware: MiddlewareHandler = async (c, next) => {
@@ -54,7 +58,11 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
     return await next();
   }
 
-  const authUser: AuthUser = { id: user.id, role: user.role, email: user.email ?? undefined };
+  const authUser: AuthUser = {
+    id: user.id,
+    role: user.role,
+    email: user.email ?? undefined,
+  };
   c.set("user", authUser);
   await next();
 };
@@ -68,10 +76,11 @@ export const requireUser = (): MiddlewareHandler => async (c, next) => {
   return await next();
 };
 
-export const requireRole = (roles: Role[]): MiddlewareHandler => async (c, next) => {
-  const user = c.get("user") as AuthUser | undefined;
-  if (!user || !roles.includes(user.role)) {
-    return c.text("Forbidden", 403);
-  }
-  return await next();
-};
+export const requireRole =
+  (roles: Role[]): MiddlewareHandler => async (c, next) => {
+    const user = c.get("user") as AuthUser | undefined;
+    if (!user || !roles.includes(user.role)) {
+      return c.text("Forbidden", 403);
+    }
+    return await next();
+  };

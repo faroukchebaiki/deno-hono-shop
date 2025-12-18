@@ -4,10 +4,10 @@ import daisyui from "daisyui";
 export default {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
-    extend: {}
+    extend: {},
   },
   plugins: [daisyui],
   daisyui: {
-    themes: ["light", "dark"]
-  }
+    themes: ["light", "dark"],
+  },
 } satisfies Config;

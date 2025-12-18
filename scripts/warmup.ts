@@ -15,7 +15,10 @@ const run = async () => {
   const handler = mod.default ?? { fetch: mod.fetch };
   const fetchFn = handler?.fetch ?? mod.fetch;
 
-  assert(typeof fetchFn === "function", "No fetch handler exported from src/main.tsx");
+  assert(
+    typeof fetchFn === "function",
+    "No fetch handler exported from src/main.tsx",
+  );
 
   const cases = [
     {
@@ -25,7 +28,7 @@ const run = async () => {
         assert(res.status === 200, `Expected 200, got ${res.status}`);
         const json = await res.json() as { status?: string };
         assert(json.status === "ok", "Health payload missing status=ok");
-      }
+      },
     },
     {
       name: "GET /",
@@ -34,9 +37,42 @@ const run = async () => {
         assert(res.status === 200, `Expected 200, got ${res.status}`);
         assert(
           await textIncludes(res, "<html"),
-          "Home page did not render HTML"
+          "Home page did not render HTML",
         );
-      }
+      },
+    },
+    {
+      name: "GET /products",
+      request: new Request("http://local/products"),
+      verify: async (res: Response) => {
+        assert(res.status === 200, `Expected 200, got ${res.status}`);
+        assert(
+          await textIncludes(res, "Browse products"),
+          "Products page did not render expected heading",
+        );
+      },
+    },
+    {
+      name: "GET /products/:slug",
+      request: new Request("http://local/products/carryall-tote"),
+      verify: async (res: Response) => {
+        assert(res.status === 200, `Expected 200, got ${res.status}`);
+        assert(
+          await textIncludes(res, "Carryall Tote"),
+          "Product detail page did not render expected content",
+        );
+      },
+    },
+    {
+      name: "GET /about",
+      request: new Request("http://local/about"),
+      verify: async (res: Response) => {
+        assert(res.status === 200, `Expected 200, got ${res.status}`);
+        assert(
+          await textIncludes(res, "SSR-only"),
+          "About page did not render expected content",
+        );
+      },
     },
     {
       name: "GET /auth/login",
@@ -44,10 +80,21 @@ const run = async () => {
       verify: async (res: Response) => {
         assert(res.status === 200, `Expected 200, got ${res.status}`);
         assert(
-          await textIncludes(res, "action=\"/auth/login\""),
-          "Login page did not render expected form"
+          await textIncludes(res, 'action="/auth/login"'),
+          "Login page did not render expected form",
         );
-      }
+      },
+    },
+    {
+      name: "GET /nope (notFound)",
+      request: new Request("http://local/nope"),
+      verify: async (res: Response) => {
+        assert(res.status === 404, `Expected 404, got ${res.status}`);
+        assert(
+          await textIncludes(res, "Page not found"),
+          "NotFound page did not render expected content",
+        );
+      },
     },
     {
       name: "GET /account (redirect)",
@@ -57,17 +104,17 @@ const run = async () => {
         const location = res.headers.get("location") ?? "";
         assert(
           location.startsWith("/auth/login"),
-          `Expected redirect to /auth/login, got ${location}`
+          `Expected redirect to /auth/login, got ${location}`,
         );
-      }
+      },
     },
     {
       name: "GET /admin (forbidden)",
       request: new Request("http://local/admin"),
       verify: (res: Response) => {
         assert(res.status === 403, `Expected 403, got ${res.status}`);
-      }
-    }
+      },
+    },
   ] as const;
 
   for (const testCase of cases) {

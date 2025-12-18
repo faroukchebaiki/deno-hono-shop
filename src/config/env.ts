@@ -40,17 +40,17 @@ const requireEnv = (name: string): string => {
 export const loadConfig = (): AppConfig => ({
   server: {
     port: numberFromEnv(Deno.env.get("PORT"), 8000),
-    environment: Deno.env.get("APP_ENV") ?? "development"
+    environment: Deno.env.get("APP_ENV") ?? "development",
   },
   database: {
-    url: requireEnv("DATABASE_URL")
+    url: requireEnv("DATABASE_URL"),
   },
   stripe: {
     secretKey: Deno.env.get("STRIPE_SECRET_KEY") ?? "",
     publishableKey: Deno.env.get("STRIPE_PUBLISHABLE_KEY") ?? "",
-    webhookSecret: Deno.env.get("STRIPE_WEBHOOK_SECRET") ?? ""
+    webhookSecret: Deno.env.get("STRIPE_WEBHOOK_SECRET") ?? "",
   },
   auth: {
-    cookieSecret: requireEnv("COOKIE_SECRET")
-  }
+    cookieSecret: requireEnv("COOKIE_SECRET"),
+  },
 });

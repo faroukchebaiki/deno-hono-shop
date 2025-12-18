@@ -14,7 +14,7 @@ export const ensureCsrfToken = (c: Context): string => {
     sameSite: "Lax",
     secure: isProdLike(),
     path: "/",
-    maxAge: 60 * 60 * 2 // 2 hours
+    maxAge: 60 * 60 * 2, // 2 hours
   });
   return token;
 };

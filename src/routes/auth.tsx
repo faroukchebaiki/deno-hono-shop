@@ -4,7 +4,7 @@ import { setCookie } from "hono/cookie";
 import type { Child } from "hono/jsx";
 import type { Role } from "../types/domain.ts";
 import { ensureCsrfToken, validateCsrf } from "../auth/csrf.ts";
-import { issueAuthCookie, clearAuthCookie } from "../middleware/auth.ts";
+import { clearAuthCookie, issueAuthCookie } from "../middleware/auth.ts";
 import { hashPassword, verifyPassword } from "../lib/crypto.ts";
 import { userRepository } from "../db/repositories.ts";
 
@@ -27,7 +27,10 @@ const parseForm = async (c: Context) => {
   return body;
 };
 
-const renderLogin = (c: Context, opts?: { error?: string; returnTo?: string }) => {
+const renderLogin = (
+  c: Context,
+  opts?: { error?: string; returnTo?: string },
+) => {
   const csrfToken = ensureCsrfToken(c);
   const returnTo = opts?.returnTo ?? c.req.query("returnTo") ?? "/";
   const error = opts?.error ?? c.req.query("error");
@@ -62,9 +65,10 @@ const renderLogin = (c: Context, opts?: { error?: string; returnTo?: string }) =
         <button type="submit" class="btn btn-primary w-full">Sign in</button>
       </form>
       <p class="mt-4 text-sm text-base-content/70">
-        New here? <a class="link link-primary" href="/auth/register">Create an account</a>
+        New here?{" "}
+        <a class="link link-primary" href="/auth/register">Create an account</a>
       </p>
-    </AuthCard>
+    </AuthCard>,
   );
 };
 
@@ -72,7 +76,9 @@ const renderRegister = (c: Context, opts?: { error?: string }) => {
   const csrfToken = ensureCsrfToken(c);
   return c.render(
     <AuthCard title="Create account">
-      {opts?.error && <div class="alert alert-error mb-4 text-sm">{opts.error}</div>}
+      {opts?.error && (
+        <div class="alert alert-error mb-4 text-sm">{opts.error}</div>
+      )}
       <form method="POST" action="/auth/register" class="space-y-4">
         <input type="hidden" name="_csrf" value={csrfToken} />
         <label class="form-control w-full">
@@ -100,26 +106,34 @@ const renderRegister = (c: Context, opts?: { error?: string }) => {
             autoComplete="new-password"
           />
         </label>
-        <button type="submit" class="btn btn-primary w-full">Create account</button>
+        <button type="submit" class="btn btn-primary w-full">
+          Create account
+        </button>
       </form>
       <p class="mt-4 text-sm text-base-content/70">
         Already have an account?{" "}
         <a class="link link-primary" href="/auth/login">Sign in</a>
       </p>
-    </AuthCard>
+    </AuthCard>,
   );
 };
 
 const validateCredentials = (email: string, password: string) => {
   const errors: string[] = [];
-  if (!email || !email.includes("@")) errors.push("Please enter a valid email.");
+  if (!email || !email.includes("@")) {
+    errors.push("Please enter a valid email.");
+  }
   if (!password || password.length < 8) {
     errors.push("Password must be at least 8 characters.");
   }
   return errors;
 };
 
-const setSessionCookie = async (c: Hono.Context, userId: string, role: Role) => {
+const setSessionCookie = async (
+  c: Hono.Context,
+  userId: string,
+  role: Role,
+) => {
   const cookie = await issueAuthCookie(userId, role);
   setCookie(c, cookie.name, cookie.value, cookie.attributes);
 };
@@ -176,7 +190,9 @@ auth.post("/register", async (c) => {
 
   const existing = await userRepository.findByEmail(email);
   if (existing) {
-    return renderRegister(c, { error: "An account with that email already exists." });
+    return renderRegister(c, {
+      error: "An account with that email already exists.",
+    });
   }
 
   const passwordHash = await hashPassword(password);
