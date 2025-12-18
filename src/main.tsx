@@ -10,6 +10,7 @@ import {
   cartRepository,
   orderRepository,
   productRepository,
+  userRepository,
 } from "./db/repositories.ts";
 import { getCookie, setCookie } from "hono/cookie";
 import type { AuthUser } from "./middleware/auth.ts";
@@ -526,6 +527,10 @@ const stripeEnabled = Boolean(
     stripeConfig.webhookSecret,
 );
 
+type AccountOrder = Awaited<
+  ReturnType<typeof orderRepository.listByUser>
+>[number];
+
 const getStripeClient = () => {
   if (!stripeConfig.secretKey) {
     throw new Error("Stripe secret key is not configured.");
@@ -1026,6 +1031,181 @@ const CheckoutResultPage = (
   </PageShell>
 );
 
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+const statusBadge = (status: OrderStatus) => {
+  const base = "badge badge-sm";
+  switch (status) {
+    case OrderStatus.PAID:
+      return `${base} badge-success`;
+    case OrderStatus.SHIPPED:
+      return `${base} badge-primary`;
+    case OrderStatus.REFUNDED:
+      return `${base} badge-neutral`;
+    case OrderStatus.CANCELLED:
+      return `${base} badge-outline`;
+    default:
+      return `${base} badge-warning`;
+  }
+};
+
+type AccountPageProps = {
+  user: { name?: string | null; email?: string | null; role: Role };
+  orders: AccountOrder[];
+};
+
+const AccountPage = ({ user, orders }: AccountPageProps) => {
+  const totalSpent = orders.reduce(
+    (sum, order) => sum + (order.amountCents ?? 0),
+    0,
+  );
+  return (
+    <PageShell>
+      <main class="space-y-6">
+        <header class="space-y-2">
+          <p class="text-xs uppercase tracking-[0.18em] text-primary">
+            Account
+          </p>
+          <h1 class="text-3xl font-bold">
+            Welcome{user.name ? `, ${user.name}` : ""}
+          </h1>
+          <p class="text-sm text-base-content/70">
+            View your profile and recent orders. Data is server-rendered on each
+            request.
+          </p>
+        </header>
+
+        <section class="grid gap-4 sm:grid-cols-3">
+          <div class="rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm">
+            <p class="text-sm text-base-content/60">Email</p>
+            <p class="font-semibold">{user.email ?? "—"}</p>
+          </div>
+          <div class="rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm">
+            <p class="text-sm text-base-content/60">Role</p>
+            <p class="font-semibold capitalize">{user.role.toLowerCase()}</p>
+          </div>
+          <div class="rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm">
+            <p class="text-sm text-base-content/60">Total spent</p>
+            <p class="font-semibold">{formatMoneyCents(totalSpent || 0)}</p>
+          </div>
+        </section>
+
+        <section class="space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+                Orders
+              </p>
+              <h2 class="text-xl font-semibold">Recent orders</h2>
+            </div>
+          </div>
+          {orders.length === 0
+            ? (
+              <div class="rounded-2xl border border-base-300 bg-base-100 p-6 text-center shadow-sm space-y-2">
+                <p class="font-semibold">No orders yet</p>
+                <p class="text-sm text-base-content/70">
+                  Once you checkout, your orders will appear here.
+                </p>
+                <a href="/products" class="btn btn-primary btn-sm">
+                  Shop products
+                </a>
+              </div>
+            )
+            : (
+              <div class="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Order</th>
+                      <th>Status</th>
+                      <th>Total</th>
+                      <th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orders.map((order) => (
+                      <tr key={order.id}>
+                        <td>
+                          <a
+                            class="link link-primary"
+                            href={`/account/orders/${order.id}`}
+                          >
+                            {order.id.slice(0, 8)}
+                          </a>
+                        </td>
+                        <td>
+                          <span class={statusBadge(order.status)}>
+                            {order.status}
+                          </span>
+                        </td>
+                        <td>
+                          {order.amountCents
+                            ? formatMoneyCents(
+                              order.amountCents,
+                              order.currency ?? "USD",
+                            )
+                            : "—"}
+                        </td>
+                        <td>{formatDate(order.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+        </section>
+      </main>
+    </PageShell>
+  );
+};
+
+const OrderDetailPage = (
+  { order }: { order: AccountOrder },
+) => (
+  <PageShell>
+    <main class="space-y-4">
+      <Breadcrumbs
+        items={[
+          { label: "Account", href: "/account" },
+          { label: "Orders", href: "/account" },
+          { label: order.id.slice(0, 8) },
+        ]}
+      />
+      <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+              Order
+            </p>
+            <h1 class="text-2xl font-semibold">{order.id}</h1>
+          </div>
+          <span class={statusBadge(order.status)}>{order.status}</span>
+        </div>
+        <p class="text-sm text-base-content/70">
+          Placed on {formatDate(order.createdAt)}
+        </p>
+        <p class="text-lg font-semibold">
+          {order.amountCents
+            ? formatMoneyCents(order.amountCents, order.currency ?? "USD")
+            : "—"}
+        </p>
+        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4 text-sm">
+          <p class="font-semibold mb-1">Fulfillment</p>
+          <p class="text-base-content/70">
+            Shipment and line items will be added in the next stages.
+          </p>
+        </div>
+        <a href="/account" class="btn btn-ghost btn-sm">Back to account</a>
+      </div>
+    </main>
+  </PageShell>
+);
+
 const parsePositiveInt = (value: string | undefined, fallback: number) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -1474,19 +1654,41 @@ app.get("/privacy", (c: Context) =>
     { title: "Privacy · Hono Shop" },
   ));
 
-app.get("/account", requireUser(), (c: Context) =>
-  c.render(
-    <main class="mx-auto max-w-4xl px-4 py-10">
-      <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm">
-        <p class="text-xs uppercase tracking-[0.18em] text-primary">Account</p>
-        <h1 class="text-3xl font-semibold">Account dashboard</h1>
-        <p class="mt-2 text-base-content/70">
-          Welcome back. Replace this placeholder with order history, profile
-          details, and saved addresses.
-        </p>
-      </div>
-    </main>,
-  ));
+app.get("/account", requireUser(), (c: Context) => c.notFound());
+
+app.get(
+  "/account/orders",
+  requireUser(),
+  (c: Context) => c.redirect("/account"),
+);
+
+app.get("/account", requireUser(), async (c: Context) => {
+  const authUser = c.get("user") as AuthUser;
+  const [user, orders] = await Promise.all([
+    userRepository.findActiveById(authUser.id),
+    orderRepository.listByUser(authUser.id),
+  ]);
+
+  return c.render(
+    <AccountPage
+      user={{ name: user?.name, email: user?.email, role: authUser.role }}
+      orders={orders}
+    />,
+    { title: "Account · Hono Shop" },
+  );
+});
+
+app.get("/account/orders/:id", requireUser(), async (c: Context) => {
+  const authUser = c.get("user") as AuthUser;
+  const order = await orderRepository.findById(c.req.param("id"));
+  if (!order || order.userId !== authUser.id) {
+    return c.notFound();
+  }
+  return c.render(
+    <OrderDetailPage order={order} />,
+    { title: `Order ${order.id.slice(0, 8)} · Hono Shop` },
+  );
+});
 
 app.get("/admin", requireRole([Role.ADMIN]), (c: Context) =>
   c.render(

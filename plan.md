@@ -61,13 +61,14 @@ Checkout. Keep it minimal, edge-friendly, and easy to extend.
 - [x] Webhooks: verify signature, update order status `pending -> paid` or
       `cancelled` on failure, capture payment intent id, clear cart on success.
 
-## Stage 5 — Account Area
+## Stage 5 — Account Area (✅ done)
 
-- Dashboard summary (recent orders, profile snippet).
-- Order history list + order detail (lines, totals, status timeline).
-- Profile management: name, email, password change (requires current password).
-- Address book: shipping/billing addresses CRUD.
-- Ensure guards and SSR-only forms with POST/redirect-after-post pattern.
+- [x] Dashboard summary (recent orders, profile snippet).
+- [x] Order history list + order detail (amount, status, timestamp).
+- [ ] Profile management: name, email, password change (requires current
+      password).
+- [ ] Address book: shipping/billing addresses CRUD.
+- [x] Guards and SSR-only forms with POST/redirect-after-post pattern.
 
 ## Stage 6 — Admin & Staff
 
