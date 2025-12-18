@@ -251,6 +251,26 @@ export const orderRepository = {
     `;
     return rows;
   },
+  listAll: async (limit = 50) => {
+    const sql = await getDb();
+    const rows = await sql<OrderRow>`
+      select
+        id,
+        userid as "userId",
+        status,
+        amountcents as "amountCents",
+        currency,
+        cartid as "cartId",
+        "stripeSessionId" as "stripeSessionId",
+        "stripePaymentIntentId" as "stripePaymentIntentId",
+        createdat as "createdAt",
+        updatedat as "updatedAt"
+      from "Order"
+      order by createdat desc
+      limit ${limit};
+    `;
+    return rows;
+  },
   findById: async (id: string) => {
     const sql = await getDb();
     const rows = await sql<OrderRow>`

@@ -72,14 +72,12 @@ Checkout. Keep it minimal, edge-friendly, and easy to extend.
 
 ## Stage 6 — Admin & Staff
 
-- Admin login (reuses auth).
-- Product management: list, create, update, archive, variants, inventory
-  adjustments.
-- Order management: filter by status, view detail, update status to
-  shipped/refunded/cancelled (server-side rules, log actor + timestamp).
-- User management: roles, deactivate/reactivate accounts.
-- Staff role: restricted to order view/update-shipping only.
-- Audit log: minimal table capturing action, user, target, timestamp.
+- [x] Admin login (reuses auth); Staff can view/update orders.
+- [x] Order management: list all, update status to paid/shipped/cancelled.
+- [x] Product list (read-only for now).
+- [ ] Product CRUD: create/update/archive/variants/inventory.
+- [ ] User management: roles, deactivate/reactivate accounts.
+- [ ] Audit log: minimal table capturing action, user, target, timestamp.
 
 ## Stage 7 — Observability & Operations
 

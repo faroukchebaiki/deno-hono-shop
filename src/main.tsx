@@ -531,6 +531,8 @@ type AccountOrder = Awaited<
   ReturnType<typeof orderRepository.listByUser>
 >[number];
 
+type AdminOrder = Awaited<ReturnType<typeof orderRepository.listAll>>[number];
+
 const getStripeClient = () => {
   if (!stripeConfig.secretKey) {
     throw new Error("Stripe secret key is not configured.");
@@ -1206,6 +1208,134 @@ const OrderDetailPage = (
   </PageShell>
 );
 
+type AdminOrdersPageProps = {
+  orders: AdminOrder[];
+};
+
+const AdminOrdersPage = ({ orders }: AdminOrdersPageProps) => (
+  <PageShell>
+    <main class="space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+            Admin
+          </p>
+          <h1 class="text-3xl font-bold">Orders</h1>
+        </div>
+        <a href="/admin" class="btn btn-ghost btn-sm">Back to admin</a>
+      </div>
+      <div class="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm">
+        <table class="table table-zebra">
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>User</th>
+              <th>Status</th>
+              <th>Total</th>
+              <th>Date</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orders.map((order) => (
+              <tr key={order.id}>
+                <td>{order.id.slice(0, 8)}</td>
+                <td>{order.userId ?? "Guest"}</td>
+                <td>
+                  <span class={statusBadge(order.status)}>{order.status}</span>
+                </td>
+                <td>
+                  {order.amountCents
+                    ? formatMoneyCents(
+                      order.amountCents,
+                      order.currency ?? "USD",
+                    )
+                    : "—"}
+                </td>
+                <td>{formatDate(order.createdAt)}</td>
+                <td>
+                  <div class="flex flex-wrap gap-2">
+                    {[
+                      OrderStatus.PAID,
+                      OrderStatus.SHIPPED,
+                      OrderStatus.CANCELLED,
+                    ].map((status) => (
+                      <form
+                        method="POST"
+                        action="/admin/orders/status"
+                        key={`${order.id}-${status}`}
+                      >
+                        <input type="hidden" name="orderId" value={order.id} />
+                        <input type="hidden" name="status" value={status} />
+                        <button
+                          type="submit"
+                          class={`btn btn-xs ${
+                            order.status === status
+                              ? "btn-disabled"
+                              : "btn-outline"
+                          }`}
+                        >
+                          {status.toLowerCase()}
+                        </button>
+                      </form>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </PageShell>
+);
+
+type AdminProductsPageProps = { products: DbProduct[] };
+
+const AdminProductsPage = ({ products }: AdminProductsPageProps) => (
+  <PageShell>
+    <main class="space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+            Admin
+          </p>
+          <h1 class="text-3xl font-bold">Products</h1>
+        </div>
+        <a href="/admin" class="btn btn-ghost btn-sm">Back to admin</a>
+      </div>
+      <div class="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm">
+        <table class="table table-zebra">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Slug</th>
+              <th>Category</th>
+              <th>Price</th>
+              <th>Active</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {products.map((product) => (
+              <tr key={product.id}>
+                <td>{product.name}</td>
+                <td>{product.slug}</td>
+                <td>{product.category ?? "—"}</td>
+                <td>
+                  {formatMoneyCents(product.priceCents, product.currency)}
+                </td>
+                <td>{product.active ? "Yes" : "No"}</td>
+                <td>{formatDate(product.createdAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </PageShell>
+);
+
 const parsePositiveInt = (value: string | undefined, fallback: number) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -1692,17 +1822,82 @@ app.get("/account/orders/:id", requireUser(), async (c: Context) => {
 
 app.get("/admin", requireRole([Role.ADMIN]), (c: Context) =>
   c.render(
-    <main class="mx-auto max-w-4xl px-4 py-10">
-      <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm">
-        <p class="text-xs uppercase tracking-[0.18em] text-primary">Admin</p>
-        <h1 class="text-3xl font-semibold">Admin dashboard</h1>
-        <p class="mt-2 text-base-content/70">
-          Admin-only area for managing products, orders, and users. Fill this in
-          during the admin stage.
-        </p>
-      </div>
-    </main>,
+    <PageShell>
+      <main class="space-y-6">
+        <div class="space-y-2">
+          <p class="text-xs uppercase tracking-[0.18em] text-primary">Admin</p>
+          <h1 class="text-3xl font-bold">Admin dashboard</h1>
+          <p class="text-sm text-base-content/70">
+            Quick links for orders and products. Staff can manage orders; admin
+            can view products.
+          </p>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-2">
+            <h2 class="text-lg font-semibold">Orders</h2>
+            <p class="text-sm text-base-content/70">
+              View and update order status (paid/shipped/cancelled).
+            </p>
+            <a href="/admin/orders" class="btn btn-primary btn-sm">
+              Manage orders
+            </a>
+          </div>
+          <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-2">
+            <h2 class="text-lg font-semibold">Products</h2>
+            <p class="text-sm text-base-content/70">
+              View product catalog. Editing/CRUD will be added later.
+            </p>
+            <a href="/admin/products" class="btn btn-outline btn-sm">
+              View products
+            </a>
+          </div>
+        </div>
+      </main>
+    </PageShell>,
   ));
+
+app.get(
+  "/admin/orders",
+  requireRole([Role.ADMIN, Role.STAFF]),
+  async (c: Context) => {
+    const orders = await orderRepository.listAll(100);
+    return c.render(<AdminOrdersPage orders={orders} />, {
+      title: "Admin · Orders",
+    });
+  },
+);
+
+app.post(
+  "/admin/orders/status",
+  requireRole([Role.ADMIN, Role.STAFF]),
+  async (c: Context) => {
+    const form = await c.req.parseBody() as Record<string, string>;
+    const orderId = form.orderId?.toString();
+    const status = form.status?.toString() as OrderStatus | undefined;
+    if (!orderId || !status) return c.text("Missing order id or status", 400);
+
+    if (
+      ![OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.CANCELLED].includes(
+        status,
+      )
+    ) {
+      return c.text("Invalid status", 400);
+    }
+
+    await orderRepository.updateStatus(orderId, status);
+    return c.redirect("/admin/orders", 303);
+  },
+);
+
+app.get("/admin/products", requireRole([Role.ADMIN]), async (c: Context) => {
+  const products = await productRepository.listActive({
+    limit: 200,
+    offset: 0,
+  });
+  return c.render(<AdminProductsPage products={products} />, {
+    title: "Admin · Products",
+  });
+});
 
 app.get("/health", (c: Context) =>
   c.json({
