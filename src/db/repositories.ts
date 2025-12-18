@@ -34,8 +34,42 @@ type OrderRow = {
   id: string;
   userId: string | null;
   status: OrderStatus;
+  amountCents: number | null;
+  currency: string | null;
+  cartId: string | null;
+  stripeSessionId: string | null;
+  stripePaymentIntentId: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+type CartRow = {
+  id: string;
+  sessionId: string;
+  userId: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type CartItemRow = {
+  id: string;
+  cartId: string;
+  productId: string;
+  quantity: number;
+  priceCents: number;
+  currency: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type CartItemWithProduct = CartItemRow & {
+  productSlug: string;
+  productName: string;
+  productDescription: string | null;
+  productCategory: string | null;
+  productImages: string[] | null;
+  productActive: boolean;
 };
 
 export const userRepository = {
@@ -174,6 +208,26 @@ export const productRepository = {
     `;
     return rows[0];
   },
+  findById: async (id: string) => {
+    const sql = await getDb();
+    const rows = await sql<ProductRow>`
+      select
+        id,
+        slug,
+        name,
+        description,
+        category,
+        pricecents as "priceCents",
+        currency,
+        active,
+        images,
+        createdat as "createdAt"
+      from "Product"
+      where id = ${id} and active = true
+      limit 1;
+    `;
+    return rows[0];
+  },
 };
 
 export const orderRepository = {
@@ -184,6 +238,11 @@ export const orderRepository = {
         id,
         userid as "userId",
         status,
+        amountcents as "amountCents",
+        currency,
+        cartid as "cartId",
+        "stripeSessionId" as "stripeSessionId",
+        "stripePaymentIntentId" as "stripePaymentIntentId",
         createdat as "createdAt",
         updatedat as "updatedAt"
       from "Order"
@@ -199,6 +258,11 @@ export const orderRepository = {
         id,
         userid as "userId",
         status,
+        amountcents as "amountCents",
+        currency,
+        cartid as "cartId",
+        "stripeSessionId" as "stripeSessionId",
+        "stripePaymentIntentId" as "stripePaymentIntentId",
         createdat as "createdAt",
         updatedat as "updatedAt"
       from "Order"
@@ -217,9 +281,274 @@ export const orderRepository = {
         id,
         userid as "userId",
         status,
+        amountcents as "amountCents",
+        currency,
+        cartid as "cartId",
+        "stripeSessionId" as "stripeSessionId",
+        "stripePaymentIntentId" as "stripePaymentIntentId",
         createdat as "createdAt",
         updatedat as "updatedAt";
     `;
     return rows[0];
+  },
+  findByStripeSessionId: async (sessionId: string) => {
+    const sql = await getDb();
+    const rows = await sql<OrderRow>`
+      select
+        id,
+        userid as "userId",
+        status,
+        amountcents as "amountCents",
+        currency,
+        cartid as "cartId",
+        "stripeSessionId" as "stripeSessionId",
+        "stripePaymentIntentId" as "stripePaymentIntentId",
+        createdat as "createdAt",
+        updatedat as "updatedAt"
+      from "Order"
+      where "stripeSessionId" = ${sessionId}
+      limit 1;
+    `;
+    return rows[0];
+  },
+  create: async (
+    order: {
+      userId: string | null;
+      cartId: string | null;
+      amountCents: number;
+      currency: string;
+      status: OrderStatus;
+      stripeSessionId: string | null;
+      stripePaymentIntentId: string | null;
+      items: {
+        productId: string;
+        quantity: number;
+        priceCents: number;
+        currency: string;
+        productName: string;
+      }[];
+    },
+  ) => {
+    const sql = await getDb();
+    return await sql.transaction(async (tx) => {
+      const [created] = await tx<OrderRow>`
+        insert into "Order" (
+          userid,
+          cartid,
+          status,
+          amountcents,
+          currency,
+          "stripeSessionId",
+          "stripePaymentIntentId"
+        ) values (
+          ${order.userId},
+          ${order.cartId},
+          ${order.status},
+          ${order.amountCents},
+          ${order.currency},
+          ${order.stripeSessionId},
+          ${order.stripePaymentIntentId}
+        )
+        returning
+          id,
+          userid as "userId",
+          status,
+          amountcents as "amountCents",
+          currency,
+          cartid as "cartId",
+          "stripeSessionId" as "stripeSessionId",
+          "stripePaymentIntentId" as "stripePaymentIntentId",
+          createdat as "createdAt",
+          updatedat as "updatedAt";
+      `;
+
+      for (const item of order.items) {
+        await tx`
+          insert into "OrderItem" (
+            orderid,
+            productid,
+            quantity,
+            pricecents,
+            currency,
+            productname
+          ) values (
+            ${created.id},
+            ${item.productId},
+            ${item.quantity},
+            ${item.priceCents},
+            ${item.currency},
+            ${item.productName}
+          );
+        `;
+      }
+
+      return created;
+    });
+  },
+  updateStripeState: async (
+    id: string,
+    params: {
+      status: OrderStatus;
+      stripePaymentIntentId?: string | null;
+    },
+  ) => {
+    const sql = await getDb();
+    const rows = await sql<OrderRow>`
+      update "Order"
+      set
+        status = ${params.status},
+        "stripePaymentIntentId" = coalesce(${
+      params.stripePaymentIntentId ?? null
+    }, "stripePaymentIntentId"),
+        updatedat = now()
+      where id = ${id}
+      returning
+        id,
+        userid as "userId",
+        status,
+        amountcents as "amountCents",
+        currency,
+        cartid as "cartId",
+        "stripeSessionId" as "stripeSessionId",
+        "stripePaymentIntentId" as "stripePaymentIntentId",
+        createdat as "createdAt",
+        updatedat as "updatedAt";
+    `;
+    return rows[0];
+  },
+  setStripeSessionId: async (id: string, sessionId: string) => {
+    const sql = await getDb();
+    const rows = await sql<OrderRow>`
+      update "Order"
+      set "stripeSessionId" = ${sessionId}, updatedat = now()
+      where id = ${id}
+      returning
+        id,
+        userid as "userId",
+        status,
+        amountcents as "amountCents",
+        currency,
+        cartid as "cartId",
+        "stripeSessionId" as "stripeSessionId",
+        "stripePaymentIntentId" as "stripePaymentIntentId",
+        createdat as "createdAt",
+        updatedat as "updatedAt";
+    `;
+    return rows[0];
+  },
+};
+
+export const cartRepository = {
+  getOrCreateBySession: async (sessionId: string, userId?: string | null) => {
+    const sql = await getDb();
+    const rows = await sql<CartRow>`
+      insert into "Cart" (sessionid, userid)
+      values (${sessionId}, ${userId ?? null})
+      on conflict (sessionid) do update set userid = coalesce(excluded.userid, "Cart".userid)
+      returning
+        id,
+        sessionid as "sessionId",
+        userid as "userId",
+        status,
+        createdat as "createdAt",
+        updatedat as "updatedAt";
+    `;
+    return rows[0];
+  },
+  attachUser: async (cartId: string, userId: string) => {
+    const sql = await getDb();
+    const rows = await sql<CartRow>`
+      update "Cart"
+      set userid = coalesce(userid, ${userId}), updatedat = now()
+      where id = ${cartId}
+      returning
+        id,
+        sessionid as "sessionId",
+        userid as "userId",
+        status,
+        createdat as "createdAt",
+        updatedat as "updatedAt";
+    `;
+    return rows[0];
+  },
+  addItem: async (
+    cartId: string,
+    product: { id: string; priceCents: number; currency: string; name: string },
+    quantity: number,
+  ) => {
+    const sql = await getDb();
+    const rows = await sql<CartItemRow>`
+      insert into "CartItem" (cartid, productid, quantity, pricecents, currency)
+      values (${cartId}, ${product.id}, ${quantity}, ${product.priceCents}, ${product.currency})
+      on conflict (cartid, productid) do update set
+        quantity = "CartItem".quantity + excluded.quantity,
+        pricecents = excluded.pricecents,
+        currency = excluded.currency,
+        updatedat = now()
+      returning
+        id,
+        cartid as "cartId",
+        productid as "productId",
+        quantity,
+        pricecents as "priceCents",
+        currency,
+        createdat as "createdAt",
+        updatedat as "updatedAt";
+    `;
+    return rows[0];
+  },
+  listWithProducts: async (cartId: string) => {
+    const sql = await getDb();
+    const rows = await sql<CartItemWithProduct>`
+      select
+        ci.id,
+        ci.cartid as "cartId",
+        ci.productid as "productId",
+        ci.quantity,
+        ci.pricecents as "priceCents",
+        ci.currency,
+        ci.createdat as "createdAt",
+        ci.updatedat as "updatedAt",
+        p.slug as "productSlug",
+        p.name as "productName",
+        p.description as "productDescription",
+        p.category as "productCategory",
+        p.images as "productImages",
+        p.active as "productActive"
+      from "CartItem" ci
+      join "Product" p on ci.productid = p.id
+      where ci.cartid = ${cartId}
+      order by ci.createdat desc;
+    `;
+    return rows;
+  },
+  updateQuantity: async (cartId: string, itemId: string, quantity: number) => {
+    const sql = await getDb();
+    if (quantity <= 0) {
+      await sql`
+        delete from "CartItem"
+        where cartid = ${cartId} and id = ${itemId};
+      `;
+      return null;
+    }
+    const rows = await sql<CartItemRow>`
+      update "CartItem"
+      set quantity = ${quantity}, updatedat = now()
+      where cartid = ${cartId} and id = ${itemId}
+      returning
+        id,
+        cartid as "cartId",
+        productid as "productId",
+        quantity,
+        pricecents as "priceCents",
+        currency,
+        createdat as "createdAt",
+        updatedat as "updatedAt";
+    `;
+    return rows[0] ?? null;
+  },
+  clear: async (cartId: string) => {
+    const sql = await getDb();
+    await sql`delete from "CartItem" where cartid = ${cartId};`;
   },
 };

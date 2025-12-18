@@ -22,7 +22,8 @@
     "hono/jsx/jsx-dev-runtime": "https://deno.land/x/hono@v3.12.0/jsx/jsx-runtime.ts",
     "hono/middleware": "https://deno.land/x/hono@v3.12.0/middleware.ts",
     "hono/cookie": "https://deno.land/x/hono@v3.12.0/helper/cookie/index.ts",
-    "@neondatabase/serverless": "npm:@neondatabase/serverless@0.8.1"
+    "@neondatabase/serverless": "npm:@neondatabase/serverless@0.8.1",
+    "stripe": "npm:stripe@16.6.0"
   },
   "deploy": {
     "project": "deno-hono-shop",

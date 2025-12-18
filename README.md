@@ -12,6 +12,9 @@ Neon Postgres, and Stripe placeholders. Tooling uses pnpm for Tailwind.
 4. Build CSS: `deno task dev:css` (pnpm-powered) or one-off
    `deno task build:css`.
 5. Run the server: `deno task dev` then visit `http://localhost:8000`.
+6. Stripe (for checkout): set `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`,
+   and `STRIPE_WEBHOOK_SECRET`; point your webhook to
+   `http://localhost:8000/webhooks/stripe` (Stripe CLI recommended).
 
 ## Tooling
 

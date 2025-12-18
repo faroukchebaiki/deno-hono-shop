@@ -66,12 +66,14 @@
   },
   "workspace": {
     "dependencies": [
-      "npm:@neondatabase/serverless@0.8.1"
+      "npm:@neondatabase/serverless@0.8.1",
+      "npm:stripe@16.6.0"
     ],
     "packageJson": {
       "dependencies": [
         "npm:@neondatabase/serverless@0.8.1",
         "npm:daisyui@4.11.1",
+        "npm:stripe@16.6.0",
         "npm:tailwindcss@3.4.3"
       ]
     }

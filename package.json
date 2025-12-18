@@ -10,7 +10,8 @@
     "postinstall": "echo \"no-op postinstall\""
   },
   "dependencies": {
-    "@neondatabase/serverless": "0.8.1"
+    "@neondatabase/serverless": "0.8.1",
+    "stripe": "16.6.0"
   },
   "devDependencies": {
     "daisyui": "4.11.1",

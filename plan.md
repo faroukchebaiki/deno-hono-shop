@@ -49,21 +49,17 @@ Checkout. Keep it minimal, edge-friendly, and easy to extend.
       money centrally.
 - [x] SEO: per-page title/description, basic Open Graph/Twitter tags.
 
-## Stage 4 — Cart & Checkout (Stripe)
+## Stage 4 — Cart & Checkout (Stripe) (✅ done)
 
-- Cart stored server-side in DB keyed to user or signed cart cookie for guests;
-  merge on login.
-- Cart pages: view/edit quantities, remove lines, show totals, shipping/tax
-  placeholders.
-- Checkout flow:
-  - Create Order (status `pending`) + line items from cart.
-  - Create Stripe Checkout Session server-side; store `stripeSessionId`,
-    `orderId`.
-  - Redirect to Stripe-hosted checkout; no card data handled locally.
-  - Success/cancel pages show order summary and next steps.
-- Webhooks: verify signature, update order status `pending -> paid`, capture
-  payment intent id, append webhook event record; ignore client-initiated
-  status.
+- [x] Cart stored server-side (Neon) keyed to user or signed cart cookie for
+      guests; merges user id when signed in.
+- [x] Cart pages: view/edit quantities, remove lines, show totals, shipping/tax
+      placeholders.
+- [x] Checkout flow: create Order (pending) + line items from cart; create
+      Stripe Checkout Session server-side; store `stripeSessionId`/payment
+      metadata; redirect to Stripe-hosted checkout; success/cancel pages.
+- [x] Webhooks: verify signature, update order status `pending -> paid` or
+      `cancelled` on failure, capture payment intent id, clear cart on success.
 
 ## Stage 5 — Account Area
 

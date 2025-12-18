@@ -28,3 +28,9 @@ Environment variables required at runtime:
 
 Stripe keys are not required until payments are implemented; add them later if
 you integrate Stripe.
+
+Stripe webhook endpoint:
+
+- Use `https://<your-domain>/webhooks/stripe` (or
+  `http://localhost:8000/webhooks/stripe` with Stripe CLI) and set the
+  `STRIPE_WEBHOOK_SECRET` from the configured endpoint.

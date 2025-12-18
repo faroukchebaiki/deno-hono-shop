@@ -5,12 +5,22 @@ import { jsxRenderer, serveStatic } from "hono/middleware";
 import { loadConfig } from "./config/env.ts";
 import { authMiddleware, requireRole, requireUser } from "./middleware/auth.ts";
 import { authRoutes } from "./routes/auth.tsx";
-import { Role } from "./types/domain.ts";
-import { productRepository } from "./db/repositories.ts";
+import { OrderStatus, Role } from "./types/domain.ts";
+import {
+  cartRepository,
+  orderRepository,
+  productRepository,
+} from "./db/repositories.ts";
+import { getCookie, setCookie } from "hono/cookie";
+import type { AuthUser } from "./middleware/auth.ts";
+import Stripe from "stripe";
 
 const startTime = Date.now();
+const { server, stripe: stripeConfig } = loadConfig();
 const app = new Hono();
-const { server } = loadConfig();
+const isProdLike = server.environment === "production" ||
+  Boolean(Deno.env.get("DENO_DEPLOYMENT_ID"));
+const cartCookieName = "cart_session";
 
 type Product = {
   id: string;
@@ -491,6 +501,42 @@ const demoCatalog: DbProduct[] = products.map((product) => ({
   createdAt: new Date().toISOString(),
 }));
 
+type DbCartItemRow = Awaited<
+  ReturnType<typeof cartRepository.listWithProducts>
+>[number];
+
+type CartItem = {
+  id: string;
+  productId: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  images: string[] | null;
+  active: boolean;
+  quantity: number;
+  priceCents: number;
+  currency: string;
+  subtotalCents: number;
+};
+
+const stripeEnabled = Boolean(
+  stripeConfig.secretKey &&
+    stripeConfig.publishableKey &&
+    stripeConfig.webhookSecret,
+);
+
+const getStripeClient = () => {
+  if (!stripeConfig.secretKey) {
+    throw new Error("Stripe secret key is not configured.");
+  }
+  return new Stripe(stripeConfig.secretKey, {
+    apiVersion: "2023-10-16",
+    httpClient: Stripe.createFetchHttpClient(),
+    appInfo: { name: "deno-hono-shop" },
+  });
+};
+
 const formatMoneyCents = (cents: number, currency = "USD") =>
   new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
     cents / 100,
@@ -499,6 +545,64 @@ const formatMoneyCents = (cents: number, currency = "USD") =>
 const getPrimaryImage = (images: string[] | null) =>
   images?.[0] ??
     "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80";
+
+const ensureCartSession = (c: Context) => {
+  let sessionId = getCookie(c, cartCookieName);
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    setCookie(c, cartCookieName, sessionId, {
+      httpOnly: true,
+      sameSite: "Lax",
+      secure: isProdLike,
+      path: "/",
+    });
+  }
+  return sessionId;
+};
+
+const mapCartItem = (row: DbCartItemRow): CartItem => ({
+  id: row.id,
+  productId: row.productId,
+  slug: row.productSlug,
+  name: row.productName,
+  description: row.productDescription,
+  category: row.productCategory,
+  images: row.productImages,
+  active: row.productActive,
+  quantity: row.quantity,
+  priceCents: row.priceCents,
+  currency: row.currency,
+  subtotalCents: row.priceCents * row.quantity,
+});
+
+const loadCart = async (c: Context) => {
+  const sessionId = ensureCartSession(c);
+  const authUser = c.get("user") as AuthUser | undefined;
+  const cart = await cartRepository.getOrCreateBySession(
+    sessionId,
+    authUser?.id ?? null,
+  );
+  if (authUser?.id) {
+    await cartRepository.attachUser(cart.id, authUser.id);
+  }
+  const items = (await cartRepository.listWithProducts(cart.id)).map(
+    mapCartItem,
+  );
+  const subtotalCents = items.reduce(
+    (total, item) => total + item.subtotalCents,
+    0,
+  );
+  const currency = items[0]?.currency ?? "USD";
+
+  return { cartId: cart.id, sessionId, items, subtotalCents, currency };
+};
+
+const requestOrigin = (c: Context) => {
+  const host = c.req.header("host") ?? "localhost:8000";
+  const proto = c.req.header("x-forwarded-proto") ??
+    (isProdLike ? "https" : "http");
+  return `${proto}://${host}`;
+};
 
 const Breadcrumbs = (
   { items }: { items: { label: string; href?: string }[] },
@@ -745,6 +849,183 @@ const NotFoundPage = () => (
   </PageShell>
 );
 
+type CartPageProps = {
+  items: CartItem[];
+  subtotalCents: number;
+  currency: string;
+  stripeEnabled: boolean;
+  message?: string;
+};
+
+const CartPage = ({
+  items,
+  subtotalCents,
+  currency,
+  stripeEnabled,
+  message,
+}: CartPageProps) => (
+  <PageShell>
+    <main class="space-y-8">
+      <header class="space-y-2">
+        <p class="text-xs uppercase tracking-[0.18em] text-primary/80">Cart</p>
+        <h1 class="text-3xl font-bold sm:text-4xl">Your bag</h1>
+        <p class="text-sm text-base-content/70">
+          Items are stored server-side. Checkout is powered by Stripe.
+        </p>
+        {message && (
+          <div class="alert alert-info text-sm">
+            {message}
+          </div>
+        )}
+      </header>
+
+      {items.length === 0
+        ? (
+          <div class="rounded-2xl border border-base-300 bg-base-100 p-8 text-center shadow-sm space-y-3">
+            <h2 class="text-xl font-semibold">Your cart is empty</h2>
+            <p class="text-sm text-base-content/70">
+              Add a few items to get started.
+            </p>
+            <div class="flex justify-center gap-2">
+              <a href="/products" class="btn btn-primary btn-sm">
+                Shop products
+              </a>
+              <a href="/" class="btn btn-ghost btn-sm">Back home</a>
+            </div>
+          </div>
+        )
+        : (
+          <div class="grid gap-6 lg:grid-cols-[2fr_1fr]">
+            <div class="space-y-4">
+              {items.map((item) => (
+                <div
+                  key={item.id}
+                  class="rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm flex gap-4"
+                >
+                  <div class="h-24 w-24 overflow-hidden rounded-lg bg-base-200">
+                    <img
+                      src={getPrimaryImage(item.images)}
+                      alt={item.name}
+                      class="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  </div>
+                  <div class="flex-1 space-y-2">
+                    <div class="flex items-start justify-between gap-3">
+                      <div>
+                        <a
+                          href={`/products/${item.slug}`}
+                          class="text-lg font-semibold"
+                        >
+                          {item.name}
+                        </a>
+                        <p class="text-sm text-base-content/60">
+                          {item.category ?? "—"}
+                        </p>
+                        {!item.active && (
+                          <p class="text-xs text-warning mt-1">
+                            This item is no longer available. Remove it to
+                            continue.
+                          </p>
+                        )}
+                      </div>
+                      <p class="font-semibold">
+                        {formatMoneyCents(item.priceCents, item.currency)}
+                      </p>
+                    </div>
+                    <p class="text-sm text-base-content/70">
+                      {item.description ?? "—"}
+                    </p>
+                    <div class="flex flex-wrap items-center gap-3">
+                      <form
+                        class="flex items-center gap-2"
+                        method="POST"
+                        action="/cart/update"
+                      >
+                        <input type="hidden" name="itemId" value={item.id} />
+                        <input
+                          type="number"
+                          name="quantity"
+                          min="0"
+                          value={item.quantity}
+                          class="input input-bordered input-sm w-24"
+                        />
+                        <button type="submit" class="btn btn-sm btn-outline">
+                          Update
+                        </button>
+                      </form>
+                      <p class="text-sm text-base-content/70">
+                        Subtotal:{" "}
+                        {formatMoneyCents(item.subtotalCents, item.currency)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <form method="POST" action="/cart/clear">
+                <button type="submit" class="btn btn-sm btn-ghost">
+                  Clear cart
+                </button>
+              </form>
+            </div>
+
+            <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-4">
+              <h2 class="text-lg font-semibold">Order summary</h2>
+              <div class="flex items-center justify-between text-sm">
+                <p>Subtotal</p>
+                <p>{formatMoneyCents(subtotalCents, currency)}</p>
+              </div>
+              <div class="flex items-center justify-between text-sm">
+                <p>Shipping</p>
+                <p class="text-base-content/60">Calculated at checkout</p>
+              </div>
+              <div class="divider my-1" />
+              <div class="flex items-center justify-between text-base font-semibold">
+                <p>Total</p>
+                <p>{formatMoneyCents(subtotalCents, currency)}</p>
+              </div>
+              {!stripeEnabled && (
+                <div class="alert alert-warning text-sm">
+                  Stripe keys are not configured. Add `STRIPE_SECRET_KEY` and
+                  `STRIPE_PUBLISHABLE_KEY` to enable checkout.
+                </div>
+              )}
+              <form method="POST" action="/checkout" class="space-y-2">
+                <button
+                  type="submit"
+                  class={`btn btn-primary w-full ${
+                    stripeEnabled ? "" : "btn-disabled"
+                  }`}
+                  aria-disabled={stripeEnabled ? "false" : "true"}
+                >
+                  Checkout with Stripe
+                </button>
+                <p class="text-xs text-base-content/60">
+                  By checking out you agree to our terms and privacy policy.
+                </p>
+              </form>
+            </div>
+          </div>
+        )}
+    </main>
+  </PageShell>
+);
+
+const CheckoutResultPage = (
+  { title, body }: { title: string; body: string },
+) => (
+  <PageShell>
+    <main class="mx-auto max-w-2xl space-y-4">
+      <h1 class="text-3xl font-bold">{title}</h1>
+      <p class="text-base text-base-content/70">{body}</p>
+      <div class="flex gap-2">
+        <a href="/products" class="btn btn-primary btn-sm">Continue shopping</a>
+        <a href="/account" class="btn btn-ghost btn-sm">Account</a>
+      </div>
+    </main>
+  </PageShell>
+);
+
 const parsePositiveInt = (value: string | undefined, fallback: number) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -890,6 +1171,241 @@ app.get("/products/:slug", async (c: Context) => {
   return c.notFound();
 });
 
+const parseQuantity = (value: unknown, fallback = 1) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const floored = Math.floor(parsed);
+  return floored > 0 ? floored : fallback;
+};
+
+app.get("/cart", async (c: Context) => {
+  const { items, subtotalCents, currency } = await loadCart(c);
+  const message = c.req.query("msg") ?? undefined;
+  return c.render(
+    <CartPage
+      items={items}
+      subtotalCents={subtotalCents}
+      currency={currency}
+      stripeEnabled={stripeEnabled}
+      message={message}
+    />,
+    { title: "Cart · Hono Shop" },
+  );
+});
+
+app.post("/cart/add", async (c: Context) => {
+  const form = await c.req.parseBody() as Record<string, string>;
+  const productId = form.productId?.toString();
+  const quantity = parseQuantity(form.quantity, 1);
+  if (!productId) return c.text("Missing product", 400);
+
+  const product = await productRepository.findById(productId);
+  if (!product) return c.text("Product not found", 404);
+
+  const { cartId } = await loadCart(c);
+  await cartRepository.addItem(
+    cartId,
+    {
+      id: product.id,
+      priceCents: product.priceCents,
+      currency: product.currency,
+      name: product.name,
+    },
+    quantity,
+  );
+
+  const returnTo = form.returnTo || c.req.header("referer") || "/cart";
+  return c.redirect(returnTo.toString(), 303);
+});
+
+app.post("/cart/update", async (c: Context) => {
+  const form = await c.req.parseBody() as Record<string, string>;
+  const itemId = form.itemId?.toString();
+  const quantity = parseQuantity(form.quantity, 0);
+  if (!itemId) return c.text("Missing cart item", 400);
+
+  const { cartId } = await loadCart(c);
+  await cartRepository.updateQuantity(cartId, itemId, quantity);
+  return c.redirect("/cart", 303);
+});
+
+app.post("/cart/clear", async (c: Context) => {
+  const { cartId } = await loadCart(c);
+  await cartRepository.clear(cartId);
+  return c.redirect("/cart", 303);
+});
+
+app.post("/checkout", async (c: Context) => {
+  if (!stripeEnabled || !stripeConfig.webhookSecret) {
+    return c.text(
+      "Stripe is not configured. Add STRIPE keys to continue.",
+      503,
+    );
+  }
+
+  const { items, subtotalCents, currency, cartId } = await loadCart(c);
+  const authUser = c.get("user") as AuthUser | undefined;
+
+  if (items.length === 0) {
+    return c.redirect("/cart?msg=Your cart is empty.", 303);
+  }
+
+  const unavailable = items.filter((item) => !item.active);
+  if (unavailable.length) {
+    return c.redirect(
+      "/cart?msg=One or more items are unavailable. Please remove them.",
+      303,
+    );
+  }
+
+  const stripe = getStripeClient();
+
+  const order = await orderRepository.create({
+    userId: authUser?.id ?? null,
+    cartId,
+    amountCents: subtotalCents,
+    currency,
+    status: OrderStatus.PENDING,
+    stripeSessionId: null,
+    stripePaymentIntentId: null,
+    items: items.map((item) => ({
+      productId: item.productId,
+      quantity: item.quantity,
+      priceCents: item.priceCents,
+      currency: item.currency,
+      productName: item.name,
+    })),
+  });
+
+  const origin = requestOrigin(c);
+  const successUrl = `${origin}/checkout/success?orderId=${order.id}`;
+  const cancelUrl = `${origin}/checkout/cancel?orderId=${order.id}`;
+
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    client_reference_id: order.id,
+    metadata: { orderId: order.id, cartId },
+    payment_intent_data: { metadata: { orderId: order.id, cartId } },
+    line_items: items.map((item) => ({
+      quantity: item.quantity,
+      price_data: {
+        currency: item.currency,
+        unit_amount: item.priceCents,
+        product_data: {
+          name: item.name,
+          description: item.description ?? undefined,
+        },
+      },
+    })),
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  });
+
+  if (session.id) {
+    await orderRepository.setStripeSessionId(order.id, session.id);
+  }
+
+  return c.redirect(session.url ?? cancelUrl, 303);
+});
+
+app.get("/checkout/success", (c: Context) => {
+  const orderId = c.req.query("orderId");
+  return c.render(
+    <CheckoutResultPage
+      title="Payment received"
+      body={`Thanks for your purchase. Order ${orderId ?? ""} is confirmed.`}
+    />,
+    { title: "Checkout success · Hono Shop" },
+  );
+});
+
+app.get("/checkout/cancel", (c: Context) => {
+  const orderId = c.req.query("orderId");
+  return c.render(
+    <CheckoutResultPage
+      title="Checkout canceled"
+      body={`Order ${
+        orderId ?? ""
+      } was not completed. You can retry from your cart.`}
+    />,
+    { title: "Checkout canceled · Hono Shop" },
+  );
+});
+
+app.post("/webhooks/stripe", async (c: Context) => {
+  if (!stripeConfig.webhookSecret || !stripeEnabled) {
+    return c.text("Stripe webhook not configured", 501);
+  }
+
+  const signature = c.req.header("stripe-signature");
+  if (!signature) return c.text("Missing signature", 400);
+
+  const rawBody = new TextDecoder().decode(await c.req.arrayBuffer());
+  const stripe = getStripeClient();
+
+  let event: Stripe.Event;
+  try {
+    event = stripe.webhooks.constructEvent(
+      rawBody,
+      signature,
+      stripeConfig.webhookSecret,
+    );
+  } catch (err) {
+    console.error("Stripe webhook signature verification failed:", err);
+    return c.text("Invalid signature", 400);
+  }
+
+  try {
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const sessionId = session.id;
+        const orderId = session.client_reference_id ??
+          session.metadata?.orderId ??
+          null;
+        const paymentIntentId = typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : session.payment_intent?.id ?? null;
+
+        const order = sessionId
+          ? await orderRepository.findByStripeSessionId(sessionId)
+          : orderId
+          ? await orderRepository.findById(orderId)
+          : null;
+
+        if (order) {
+          await orderRepository.updateStripeState(order.id, {
+            status: OrderStatus.PAID,
+            stripePaymentIntentId: paymentIntentId,
+          });
+          if (order.cartId) {
+            await cartRepository.clear(order.cartId);
+          }
+        }
+        break;
+      }
+      case "payment_intent.payment_failed": {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        const orderId = pi.metadata?.orderId;
+        if (orderId) {
+          await orderRepository.updateStripeState(orderId, {
+            status: OrderStatus.CANCELLED,
+            stripePaymentIntentId: pi.id,
+          });
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  } catch (err) {
+    console.error("Error handling Stripe webhook:", err);
+    return c.text("Webhook handling failed", 500);
+  }
+
+  return c.text("ok", 200);
+});
+
 app.get("/about", (c: Context) =>
   c.render(
     <SimplePage title="About">
@@ -956,25 +1472,6 @@ app.get("/privacy", (c: Context) =>
       </ul>
     </SimplePage>,
     { title: "Privacy · Hono Shop" },
-  ));
-
-app.get("/cart", (c: Context) =>
-  c.render(
-    <SimplePage title="Cart">
-      <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-4">
-        <p class="text-sm text-base-content/70">
-          Cart is not implemented yet. This will be built in the Stripe checkout
-          stage.
-        </p>
-        <div class="flex flex-wrap gap-2">
-          <a href="/products" class="btn btn-primary btn-sm">
-            Continue shopping
-          </a>
-          <a href="/" class="btn btn-ghost btn-sm">Back home</a>
-        </div>
-      </div>
-    </SimplePage>,
-    { title: "Cart · Hono Shop" },
   ));
 
 app.get("/account", requireUser(), (c: Context) =>
