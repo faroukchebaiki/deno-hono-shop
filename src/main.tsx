@@ -467,6 +467,7 @@ const port = server.port;
 const isDenoDeploy = Boolean(Deno.env.get("DENO_DEPLOYMENT_ID"));
 
 export { app };
+export default app;
 // Export a fetch handler for edge platforms (e.g., Deno Deploy) to avoid binding ports.
 export const fetch = (request: Request) => app.fetch(request);
 
