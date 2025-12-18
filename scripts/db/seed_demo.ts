@@ -1,4 +1,5 @@
 import { getDb } from "../../src/db/client.ts";
+import { hashPassword } from "../../src/lib/crypto.ts";
 
 const demoProducts = [
   {
@@ -75,7 +76,41 @@ const demoProducts = [
   },
 ] as const;
 
+const demoUsers = [
+  {
+    email: "customer@example.com",
+    name: "Demo Customer",
+    role: "CUSTOMER",
+    password: "demo1234",
+  },
+  {
+    email: "staff@example.com",
+    name: "Demo Staff",
+    role: "STAFF",
+    password: "demo1234",
+  },
+  {
+    email: "admin@example.com",
+    name: "Demo Admin",
+    role: "ADMIN",
+    password: "demo1234",
+  },
+] as const;
+
 const sql = await getDb();
+
+for (const user of demoUsers) {
+  const passwordHash = await hashPassword(user.password);
+  await sql`
+    insert into "User" (email, name, role, passwordhash, isactive)
+    values (${user.email}, ${user.name}, ${user.role}, ${passwordHash}, true)
+    on conflict (email) do update set
+      name = excluded.name,
+      role = excluded.role,
+      passwordhash = excluded.passwordhash,
+      isactive = true;
+  `;
+}
 
 for (const product of demoProducts) {
   await sql`
@@ -101,4 +136,6 @@ for (const product of demoProducts) {
   `;
 }
 
-console.log(`Seeded ${demoProducts.length} demo products.`);
+console.log(
+  `Seeded ${demoProducts.length} demo products and ${demoUsers.length} demo users.`,
+);

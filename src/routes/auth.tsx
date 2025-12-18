@@ -64,6 +64,36 @@ const renderLogin = (
         </label>
         <button type="submit" class="btn btn-primary w-full">Sign in</button>
       </form>
+      <div class="mt-6 space-y-2">
+        <p class="text-xs uppercase tracking-[0.18em] text-primary">
+          Demo accounts
+        </p>
+        <div class="flex flex-wrap gap-2">
+          {[
+            { email: "customer@example.com", role: "Customer" },
+            { email: "staff@example.com", role: "Staff" },
+            { email: "admin@example.com", role: "Admin" },
+          ].map((demo) => (
+            <form
+              method="POST"
+              action="/auth/login"
+              class="flex items-center gap-2"
+              key={demo.email}
+            >
+              <input type="hidden" name="_csrf" value={csrfToken} />
+              <input type="hidden" name="returnTo" value="/" />
+              <input type="hidden" name="email" value={demo.email} />
+              <input type="hidden" name="password" value="demo1234" />
+              <button type="submit" class="btn btn-sm btn-outline">
+                Login as {demo.role}
+              </button>
+            </form>
+          ))}
+        </div>
+        <p class="text-xs text-base-content/60">
+          Password for all demo users: <code class="font-mono">demo1234</code>
+        </p>
+      </div>
       <p class="mt-4 text-sm text-base-content/70">
         New here?{" "}
         <a class="link link-primary" href="/auth/register">Create an account</a>
