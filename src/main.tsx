@@ -22,6 +22,10 @@ const app = new Hono();
 const isProdLike = server.environment === "production" ||
   Boolean(Deno.env.get("DENO_DEPLOYMENT_ID"));
 const cartCookieName = "cart_session";
+const metrics = {
+  requests: 0,
+  totalDurationMs: 0,
+};
 
 type Product = {
   id: string;
@@ -153,6 +157,22 @@ app.use(
   "*",
   jsxRenderer(Layout),
 );
+
+app.use("*", async (c, next) => {
+  const start = performance.now();
+  const requestId = crypto.randomUUID();
+  c.set("requestId", requestId);
+  await next();
+  const duration = performance.now() - start;
+  metrics.requests += 1;
+  metrics.totalDurationMs += duration;
+  const status = c.res.status;
+  const method = c.req.method;
+  const path = c.req.path;
+  console.log(
+    `[${requestId}] ${method} ${path} -> ${status} (${duration.toFixed(1)}ms)`,
+  );
+});
 
 app.use("*", authMiddleware);
 app.route("/auth", authRoutes);
@@ -1905,6 +1925,28 @@ app.get("/health", (c: Context) =>
     environment: server.environment,
     uptimeSeconds: Math.round((Date.now() - startTime) / 1000),
     timestamp: new Date().toISOString(),
+    db: c.req.query("db") === "1"
+      ? (() => {
+        try {
+          // lazy require inside to avoid slowing down normal health checks
+          const promise = (async () => {
+            const { getDb } = await import("./db/client.ts");
+            const sql = await getDb();
+            const rows = await sql<{ ok: number }>`select 1 as ok;`;
+            return rows[0]?.ok === 1;
+          })();
+          return promise;
+        } catch {
+          return false;
+        }
+      })()
+      : undefined,
+    metrics: {
+      requests: metrics.requests,
+      avgDurationMs: metrics.requests
+        ? Number((metrics.totalDurationMs / metrics.requests).toFixed(2))
+        : 0,
+    },
   }));
 
 app.notFound((c: Context) => {
