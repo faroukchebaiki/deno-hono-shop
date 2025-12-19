@@ -1562,8 +1562,21 @@ const parseQuantity = (value: unknown, fallback = 1) => {
 };
 
 app.get("/cart", async (c: Context) => {
-  const { items, subtotalCents, currency } = await loadCart(c);
-  const message = c.req.query("msg") ?? undefined;
+  let items: CartItem[] = [];
+  let subtotalCents = 0;
+  let currency = "USD";
+  let message = c.req.query("msg") ?? undefined;
+
+  try {
+    const cart = await loadCart(c);
+    items = cart.items;
+    subtotalCents = cart.subtotalCents;
+    currency = cart.currency;
+  } catch (error) {
+    console.error("Failed to load cart:", error);
+    message = "Could not load cart. Check database connection.";
+  }
+
   return c.render(
     <CartPage
       items={items}
@@ -1582,20 +1595,25 @@ app.post("/cart/add", async (c: Context) => {
   const quantity = parseQuantity(form.quantity, 1);
   if (!productId) return c.text("Missing product", 400);
 
-  const product = await productRepository.findById(productId);
-  if (!product) return c.text("Product not found", 404);
+  try {
+    const product = await productRepository.findById(productId);
+    if (!product) return c.text("Product not found", 404);
 
-  const { cartId } = await loadCart(c);
-  await cartRepository.addItem(
-    cartId,
-    {
-      id: product.id,
-      priceCents: product.priceCents,
-      currency: product.currency,
-      name: product.name,
-    },
-    quantity,
-  );
+    const { cartId } = await loadCart(c);
+    await cartRepository.addItem(
+      cartId,
+      {
+        id: product.id,
+        priceCents: product.priceCents,
+        currency: product.currency,
+        name: product.name,
+      },
+      quantity,
+    );
+  } catch (error) {
+    console.error("Failed to add to cart:", error);
+    return c.text("Could not add to cart. Check database connection.", 503);
+  }
 
   const returnTo = form.returnTo || c.req.header("referer") || "/cart";
   return c.redirect(returnTo.toString(), 303);
@@ -1607,14 +1625,24 @@ app.post("/cart/update", async (c: Context) => {
   const quantity = parseQuantity(form.quantity, 0);
   if (!itemId) return c.text("Missing cart item", 400);
 
-  const { cartId } = await loadCart(c);
-  await cartRepository.updateQuantity(cartId, itemId, quantity);
+  try {
+    const { cartId } = await loadCart(c);
+    await cartRepository.updateQuantity(cartId, itemId, quantity);
+  } catch (error) {
+    console.error("Failed to update cart:", error);
+    return c.text("Could not update cart. Check database connection.", 503);
+  }
   return c.redirect("/cart", 303);
 });
 
 app.post("/cart/clear", async (c: Context) => {
-  const { cartId } = await loadCart(c);
-  await cartRepository.clear(cartId);
+  try {
+    const { cartId } = await loadCart(c);
+    await cartRepository.clear(cartId);
+  } catch (error) {
+    console.error("Failed to clear cart:", error);
+    return c.text("Could not clear cart. Check database connection.", 503);
+  }
   return c.redirect("/cart", 303);
 });
 
@@ -1626,8 +1654,22 @@ app.post("/checkout", async (c: Context) => {
     );
   }
 
-  const { items, subtotalCents, currency, cartId } = await loadCart(c);
+  let items: CartItem[] = [];
+  let subtotalCents = 0;
+  let currency = "USD";
+  let cartId: string | null = null;
   const authUser = c.get("user") as AuthUser | undefined;
+
+  try {
+    const cart = await loadCart(c);
+    items = cart.items;
+    subtotalCents = cart.subtotalCents;
+    currency = cart.currency;
+    cartId = cart.cartId;
+  } catch (error) {
+    console.error("Failed to load cart for checkout:", error);
+    return c.text("Could not load cart. Check database connection.", 503);
+  }
 
   if (items.length === 0) {
     return c.redirect("/cart?msg=Your cart is empty.", 303);
@@ -1979,17 +2021,14 @@ app.get("/health", (c: Context) =>
     uptimeSeconds: Math.round((Date.now() - startTime) / 1000),
     timestamp: new Date().toISOString(),
     db: c.req.query("db") === "1"
-      ? (() => {
+      ? await (async () => {
         try {
-          // lazy require inside to avoid slowing down normal health checks
-          const promise = (async () => {
-            const { getDb } = await import("./db/client.ts");
-            const sql = await getDb();
-            const rows = await sql<{ ok: number }>`select 1 as ok;`;
-            return rows[0]?.ok === 1;
-          })();
-          return promise;
-        } catch {
+          const { getDb } = await import("./db/client.ts");
+          const sql = await getDb();
+          const rows = await sql<{ ok: number }>`select 1 as ok;`;
+          return rows[0]?.ok === 1;
+        } catch (error) {
+          console.error("Health DB check failed:", error);
           return false;
         }
       })()
