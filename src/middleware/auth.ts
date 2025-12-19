@@ -84,7 +84,11 @@ export const requireUser = (): MiddlewareHandler => async (c, next) => {
 export const requireRole =
   (roles: Role[]): MiddlewareHandler => async (c, next) => {
     const user = c.get("user") as AuthUser | undefined;
-    if (!user || !roles.includes(user.role)) {
+    if (!user) {
+      const returnTo = encodeURIComponent(c.req.path || "/");
+      return c.redirect(`/auth/login?returnTo=${returnTo}`);
+    }
+    if (!roles.includes(user.role)) {
       return c.text("Forbidden", 403);
     }
     return await next();

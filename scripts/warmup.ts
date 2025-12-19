@@ -167,7 +167,12 @@ const run = async () => {
       name: "GET /admin (forbidden)",
       request: new Request("http://local/admin"),
       verify: (res: Response) => {
-        assert(res.status === 403, `Expected 403, got ${res.status}`);
+        assert(res.status === 302, `Expected 302, got ${res.status}`);
+        const location = res.headers.get("location") ?? "";
+        assert(
+          location.startsWith("/auth/login"),
+          `Expected redirect to /auth/login, got ${location}`,
+        );
       },
     },
   ] as const;

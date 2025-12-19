@@ -10,6 +10,17 @@ import { collectErrors, parseEmail, parseString } from "../lib/validation.ts";
 import { userRepository } from "../db/repositories.ts";
 
 const auth = new Hono();
+const demoEmails = new Set([
+  "customer@example.com",
+  "staff@example.com",
+  "admin@example.com",
+]);
+
+const safeReturnTo = (value?: string) => {
+  if (!value || typeof value !== "string") return "/";
+  if (!value.startsWith("/") || value.startsWith("//")) return "/";
+  return value;
+};
 
 const AuthCard = ({ title, children }: { title: string; children: Child }) => (
   <main class="flex min-h-screen items-center justify-center bg-base-200 px-4 py-10">
@@ -33,7 +44,9 @@ const renderLogin = (
   opts?: { error?: string; returnTo?: string },
 ) => {
   const csrfToken = ensureCsrfToken(c);
-  const returnTo = opts?.returnTo ?? c.req.query("returnTo") ?? "/";
+  const returnTo = safeReturnTo(
+    opts?.returnTo ?? c.req.query("returnTo") ?? "/",
+  );
   const error = opts?.error ?? c.req.query("error");
 
   return c.render(
@@ -165,11 +178,17 @@ auth.get("/login", (c) => {
 auth.post("/login", async (c) => {
   const form = await parseForm(c);
   const csrfValid = validateCsrf(c, form._csrf);
-  if (!csrfValid) return c.text("Invalid CSRF token", 400);
+  const returnTo = safeReturnTo(form.returnTo || "/");
+  if (!csrfValid) {
+    c.status(400);
+    return renderLogin(c, {
+      error: "Your session expired. Please try again.",
+      returnTo,
+    });
+  }
 
   const email = form.email;
   const password = form.password;
-  const returnTo = form.returnTo || "/";
 
   const validatedEmail = parseEmail(email);
   const validatedPassword = parseString(password, "Password", { minLength: 8 });
@@ -184,6 +203,13 @@ auth.post("/login", async (c) => {
   try {
     const user = await userRepository.findByEmail(validatedEmail.value);
     if (!user || !user.passwordHash) {
+      if (demoEmails.has(validatedEmail.value)) {
+        return renderLogin(c, {
+          error:
+            "Demo users are not seeded yet. Run `deno task db:seed` with your current DATABASE_URL.",
+          returnTo,
+        });
+      }
       return renderLogin(c, { error: "Invalid credentials.", returnTo });
     }
 
@@ -213,7 +239,10 @@ auth.get("/register", (c) => {
 auth.post("/register", async (c) => {
   const form = await parseForm(c);
   const csrfValid = validateCsrf(c, form._csrf);
-  if (!csrfValid) return c.text("Invalid CSRF token", 400);
+  if (!csrfValid) {
+    c.status(400);
+    return renderRegister(c, { error: "Your session expired. Please retry." });
+  }
 
   const email = form.email;
   const password = form.password;
