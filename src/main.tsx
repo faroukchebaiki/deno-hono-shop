@@ -2014,32 +2014,35 @@ app.get("/admin/products", requireRole([Role.ADMIN]), async (c: Context) => {
   });
 });
 
-app.get("/health", (c: Context) =>
-  c.json({
+app.get("/health", async (c: Context) => {
+  const dbCheck = c.req.query("db") === "1"
+    ? await (async () => {
+      try {
+        const { getDb } = await import("./db/client.ts");
+        const sql = await getDb();
+        const rows = await sql<{ ok: number }>`select 1 as ok;`;
+        return rows[0]?.ok === 1;
+      } catch (error) {
+        console.error("Health DB check failed:", error);
+        return false;
+      }
+    })()
+    : undefined;
+
+  return c.json({
     status: "ok",
     environment: server.environment,
     uptimeSeconds: Math.round((Date.now() - startTime) / 1000),
     timestamp: new Date().toISOString(),
-    db: c.req.query("db") === "1"
-      ? await (async () => {
-        try {
-          const { getDb } = await import("./db/client.ts");
-          const sql = await getDb();
-          const rows = await sql<{ ok: number }>`select 1 as ok;`;
-          return rows[0]?.ok === 1;
-        } catch (error) {
-          console.error("Health DB check failed:", error);
-          return false;
-        }
-      })()
-      : undefined,
+    db: dbCheck,
     metrics: {
       requests: metrics.requests,
       avgDurationMs: metrics.requests
         ? Number((metrics.totalDurationMs / metrics.requests).toFixed(2))
         : 0,
     },
-  }));
+  });
+});
 
 app.notFound((c: Context) => {
   c.status(404);
