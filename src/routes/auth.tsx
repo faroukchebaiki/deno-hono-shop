@@ -6,6 +6,7 @@ import type { Role } from "../types/domain.ts";
 import { ensureCsrfToken, validateCsrf } from "../auth/csrf.ts";
 import { clearAuthCookie, issueAuthCookie } from "../middleware/auth.ts";
 import { hashPassword, verifyPassword } from "../lib/crypto.ts";
+import { collectErrors, parseEmail, parseString } from "../lib/validation.ts";
 import { userRepository } from "../db/repositories.ts";
 
 const auth = new Hono();
@@ -148,17 +149,6 @@ const renderRegister = (c: Context, opts?: { error?: string }) => {
   );
 };
 
-const validateCredentials = (email: string, password: string) => {
-  const errors: string[] = [];
-  if (!email || !email.includes("@")) {
-    errors.push("Please enter a valid email.");
-  }
-  if (!password || password.length < 8) {
-    errors.push("Password must be at least 8 characters.");
-  }
-  return errors;
-};
-
 const setSessionCookie = async (
   c: Hono.Context,
   userId: string,
@@ -177,22 +167,27 @@ auth.post("/login", async (c) => {
   const csrfValid = validateCsrf(c, form._csrf);
   if (!csrfValid) return c.text("Invalid CSRF token", 400);
 
-  const email = (form.email ?? "").toString().trim().toLowerCase();
-  const password = form.password ?? "";
+  const email = form.email;
+  const password = form.password;
   const returnTo = form.returnTo || "/";
 
-  const errors = validateCredentials(email, password);
+  const validatedEmail = parseEmail(email);
+  const validatedPassword = parseString(password, "Password", { minLength: 8 });
+  const errors = collectErrors([validatedEmail, validatedPassword]);
   if (errors.length) {
     return renderLogin(c, { error: errors.join(" "), returnTo });
   }
 
   try {
-    const user = await userRepository.findByEmail(email);
+    const user = await userRepository.findByEmail(validatedEmail as string);
     if (!user || !user.passwordHash) {
       return renderLogin(c, { error: "Invalid credentials.", returnTo });
     }
 
-    const validPassword = await verifyPassword(password, user.passwordHash);
+    const validPassword = await verifyPassword(
+      validatedPassword as string,
+      user.passwordHash,
+    );
     if (!validPassword) {
       return renderLogin(c, { error: "Invalid credentials.", returnTo });
     }
@@ -217,25 +212,31 @@ auth.post("/register", async (c) => {
   const csrfValid = validateCsrf(c, form._csrf);
   if (!csrfValid) return c.text("Invalid CSRF token", 400);
 
-  const email = (form.email ?? "").toString().trim().toLowerCase();
-  const password = form.password ?? "";
+  const email = form.email;
+  const password = form.password;
   const name = form.name?.toString().trim() || undefined;
 
-  const errors = validateCredentials(email, password);
+  const validatedEmail = parseEmail(email);
+  const validatedPassword = parseString(password, "Password", { minLength: 8 });
+  const errors = collectErrors([validatedEmail, validatedPassword]);
   if (errors.length) {
     return renderRegister(c, { error: errors.join(" ") });
   }
 
   try {
-    const existing = await userRepository.findByEmail(email);
+    const existing = await userRepository.findByEmail(validatedEmail as string);
     if (existing) {
       return renderRegister(c, {
         error: "An account with that email already exists.",
       });
     }
 
-    const passwordHash = await hashPassword(password);
-    const user = await userRepository.create(email, passwordHash, name);
+    const passwordHash = await hashPassword(validatedPassword as string);
+    const user = await userRepository.create(
+      validatedEmail as string,
+      passwordHash,
+      name,
+    );
     await setSessionCookie(c, user.id, user.role);
     return c.redirect("/");
   } catch (err) {

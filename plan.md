@@ -15,8 +15,8 @@ Current state (done):
 - [x] Tasks: dev, css, db:init/seed, warmup, lint, fmt; deploy settings
       documented.
 - [x] Env: requires DATABASE_URL, COOKIE_SECRET, Stripe keys.
-- [ ] Add minimal input validation helpers (forms/params) and reuse across
-      routes.
+- [x] Add minimal input validation helpers (forms/params) and reuse across
+      routes (auth forms now validated).
 
 ## Stage 1 — Customer Profile & Addresses
 
