@@ -91,14 +91,12 @@ Checkout. Keep it minimal, edge-friendly, and easy to extend.
 
 ## Stage 8 — Security & Compliance
 
-- Harden cookies: `HttpOnly`, `SameSite=Lax`, `Secure` in prod; short lifetimes;
-  refresh tokens pattern optional.
-- Input validation: zod-like validation for forms/params; server-side only.
-- Rate limiting (lightweight, in-memory for now) on auth routes and webhook
-  endpoint.
-- Stripe webhook secret check mandatory; reject unsigned or stale timestamps.
-- Content Security Policy tuned for self + Stripe assets; set core security
-  headers.
+- [x] Harden cookies: `HttpOnly`, `SameSite=Lax`, `Secure` in prod; short
+      lifetimes.
+- [ ] Input validation: zod-like validation for forms/params; server-side only.
+- [x] Rate limiting (in-memory) on auth routes and webhook endpoint.
+- [x] Stripe webhook secret check mandatory; reject unsigned payloads.
+- [x] Content Security Policy + security headers set.
 
 ## Stage 9 — Deployment & DX
 

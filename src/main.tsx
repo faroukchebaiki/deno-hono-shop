@@ -26,6 +26,7 @@ const metrics = {
   requests: 0,
   totalDurationMs: 0,
 };
+const rateLimitBuckets = new Map<string, { resetAt: number; count: number }>();
 
 type Product = {
   id: string;
@@ -157,6 +158,30 @@ app.use(
   "*",
   jsxRenderer(Layout),
 );
+
+app.use("*", async (c, next) => {
+  c.header("Referrer-Policy", "same-origin");
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("X-Frame-Options", "DENY");
+  c.header("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+  c.header("Content-Security-Policy", cspDirectives);
+  await next();
+});
+
+app.use("*", async (c, next) => {
+  const path = c.req.path;
+  if (rateLimitPaths.some((p) => path.startsWith(p))) {
+    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
+      c.req.header("cf-connecting-ip") ||
+      "unknown";
+    const key = `${ip}:${path}`;
+    const result = rateLimit(key, 30, 60_000);
+    if (!result.allowed) {
+      return c.text("Too many requests. Try again shortly.", 429);
+    }
+  }
+  await next();
+});
 
 app.use("*", async (c, next) => {
   const start = performance.now();
@@ -572,6 +597,34 @@ const formatMoneyCents = (cents: number, currency = "USD") =>
 const getPrimaryImage = (images: string[] | null) =>
   images?.[0] ??
     "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80";
+
+const cspDirectives = [
+  "default-src 'self'",
+  "img-src 'self' data: https://images.unsplash.com https://images.ctfassets.net https://*.unsplash.com *",
+  "script-src 'self' https://js.stripe.com",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data:",
+  "connect-src 'self' https://api.stripe.com",
+  "frame-src https://js.stripe.com",
+  "form-action 'self'",
+  "base-uri 'self'",
+].join("; ");
+
+const rateLimit = (key: string, limit: number, windowMs: number) => {
+  const now = Date.now();
+  const bucket = rateLimitBuckets.get(key);
+  if (!bucket || bucket.resetAt < now) {
+    rateLimitBuckets.set(key, { resetAt: now + windowMs, count: 1 });
+    return { allowed: true, remaining: limit - 1 };
+  }
+  if (bucket.count >= limit) {
+    return { allowed: false, retryInMs: bucket.resetAt - now };
+  }
+  bucket.count += 1;
+  return { allowed: true, remaining: limit - bucket.count };
+};
+
+const rateLimitPaths = ["/auth/login", "/auth/register", "/webhooks/stripe"];
 
 const ensureCartSession = (c: Context) => {
   let sessionId = getCookie(c, cartCookieName);
