@@ -23,11 +23,14 @@ type ProductRow = {
   name: string;
   description: string | null;
   category: string | null;
+  sku: string | null;
+  stock: number | null;
   priceCents: number;
   currency: string;
   active: boolean;
   images: string[] | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 type OrderRow = {
@@ -72,6 +75,24 @@ type CartItemWithProduct = CartItemRow & {
   productActive: boolean;
 };
 
+type AddressRow = {
+  id: string;
+  userId: string;
+  type: string;
+  label: string | null;
+  name: string | null;
+  line1: string;
+  line2: string | null;
+  city: string;
+  region: string | null;
+  postalCode: string | null;
+  country: string;
+  phone: string | null;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export const userRepository = {
   findByEmail: async (email: string) => {
     const sql = await getDb();
@@ -85,6 +106,22 @@ export const userRepository = {
         isactive as "isActive"
       from "User"
       where email = ${email} and isactive = true
+      limit 1;
+    `;
+    return rows[0];
+  },
+  findByEmailAny: async (email: string) => {
+    const sql = await getDb();
+    const rows = await sql<UserRow>`
+      select
+        id,
+        email,
+        name,
+        role,
+        passwordhash as "passwordHash",
+        isactive as "isActive"
+      from "User"
+      where email = ${email}
       limit 1;
     `;
     return rows[0];
@@ -110,6 +147,44 @@ export const userRepository = {
     const rows = await sql<UserRow>`
       insert into "User" (email, passwordhash, name, role, isactive)
       values (${email}, ${passwordHash}, ${name ?? null}, 'CUSTOMER', true)
+      returning
+        id,
+        email,
+        name,
+        role,
+        passwordhash as "passwordHash",
+        isactive as "isActive";
+    `;
+    return rows[0];
+  },
+  updateProfile: async (
+    id: string,
+    profile: { email: string; name?: string | null },
+  ) => {
+    const sql = await getDb();
+    const rows = await sql<UserRow>`
+      update "User"
+      set
+        email = ${profile.email},
+        name = ${profile.name ?? null},
+        updatedat = now()
+      where id = ${id}
+      returning
+        id,
+        email,
+        name,
+        role,
+        passwordhash as "passwordHash",
+        isactive as "isActive";
+    `;
+    return rows[0];
+  },
+  updatePassword: async (id: string, passwordHash: string) => {
+    const sql = await getDb();
+    const rows = await sql<UserRow>`
+      update "User"
+      set passwordhash = ${passwordHash}, updatedat = now()
+      where id = ${id}
       returning
         id,
         email,
@@ -169,11 +244,14 @@ export const productRepository = {
         name,
         description,
         category,
+        sku,
+        stock,
         pricecents as "priceCents",
         currency,
         active,
         images,
-        createdat as "createdAt"
+        createdat as "createdAt",
+        updatedat as "updatedAt"
       from "Product"
       where active = true
         and (${category}::text is null or category = ${category})
@@ -182,6 +260,32 @@ export const productRepository = {
           or name ilike ${queryPattern}
           or coalesce(description, '') ilike ${queryPattern}
         )
+      order by createdat desc
+      limit ${limit}
+      offset ${offset};
+    `;
+    return rows;
+  },
+  listAll: async (options: { limit?: number; offset?: number } = {}) => {
+    const sql = await getDb();
+    const limit = options.limit ?? 200;
+    const offset = options.offset ?? 0;
+    const rows = await sql<ProductRow>`
+      select
+        id,
+        slug,
+        name,
+        description,
+        category,
+        sku,
+        stock,
+        pricecents as "priceCents",
+        currency,
+        active,
+        images,
+        createdat as "createdAt",
+        updatedat as "updatedAt"
+      from "Product"
       order by createdat desc
       limit ${limit}
       offset ${offset};
@@ -197,11 +301,14 @@ export const productRepository = {
         name,
         description,
         category,
+        sku,
+        stock,
         pricecents as "priceCents",
         currency,
         active,
         images,
-        createdat as "createdAt"
+        createdat as "createdAt",
+        updatedat as "updatedAt"
       from "Product"
       where slug = ${slug} and active = true
       limit 1;
@@ -217,14 +324,188 @@ export const productRepository = {
         name,
         description,
         category,
+        sku,
+        stock,
         pricecents as "priceCents",
         currency,
         active,
         images,
-        createdat as "createdAt"
+        createdat as "createdAt",
+        updatedat as "updatedAt"
       from "Product"
       where id = ${id} and active = true
       limit 1;
+    `;
+    return rows[0];
+  },
+  findByIdAdmin: async (id: string) => {
+    const sql = await getDb();
+    const rows = await sql<ProductRow>`
+      select
+        id,
+        slug,
+        name,
+        description,
+        category,
+        sku,
+        stock,
+        pricecents as "priceCents",
+        currency,
+        active,
+        images,
+        createdat as "createdAt",
+        updatedat as "updatedAt"
+      from "Product"
+      where id = ${id}
+      limit 1;
+    `;
+    return rows[0];
+  },
+  findBySlugAny: async (slug: string) => {
+    const sql = await getDb();
+    const rows = await sql<ProductRow>`
+      select
+        id,
+        slug,
+        name,
+        description,
+        category,
+        sku,
+        stock,
+        pricecents as "priceCents",
+        currency,
+        active,
+        images,
+        createdat as "createdAt",
+        updatedat as "updatedAt"
+      from "Product"
+      where slug = ${slug}
+      limit 1;
+    `;
+    return rows[0];
+  },
+  create: async (product: {
+    slug: string;
+    name: string;
+    description: string | null;
+    category: string | null;
+    sku: string | null;
+    stock: number | null;
+    priceCents: number;
+    currency: string;
+    active: boolean;
+    images: string[] | null;
+  }) => {
+    const sql = await getDb();
+    const rows = await sql<ProductRow>`
+      insert into "Product" (
+        slug,
+        name,
+        description,
+        category,
+        sku,
+        stock,
+        pricecents,
+        currency,
+        active,
+        images
+      ) values (
+        ${product.slug},
+        ${product.name},
+        ${product.description},
+        ${product.category},
+        ${product.sku},
+        ${product.stock},
+        ${product.priceCents},
+        ${product.currency},
+        ${product.active},
+        ${product.images}
+      )
+      returning
+        id,
+        slug,
+        name,
+        description,
+        category,
+        sku,
+        stock,
+        pricecents as "priceCents",
+        currency,
+        active,
+        images,
+        createdat as "createdAt",
+        updatedat as "updatedAt";
+    `;
+    return rows[0];
+  },
+  update: async (
+    id: string,
+    product: {
+      slug: string;
+      name: string;
+      description: string | null;
+      category: string | null;
+      sku: string | null;
+      stock: number | null;
+      priceCents: number;
+      currency: string;
+      active: boolean;
+      images: string[] | null;
+    },
+  ) => {
+    const sql = await getDb();
+    const rows = await sql<ProductRow>`
+      update "Product"
+      set
+        slug = ${product.slug},
+        name = ${product.name},
+        description = ${product.description},
+        category = ${product.category},
+        sku = ${product.sku},
+        stock = ${product.stock},
+        pricecents = ${product.priceCents},
+        currency = ${product.currency},
+        active = ${product.active},
+        images = ${product.images},
+        updatedat = now()
+      where id = ${id}
+      returning
+        id,
+        slug,
+        name,
+        description,
+        category,
+        sku,
+        stock,
+        pricecents as "priceCents",
+        currency,
+        active,
+        images,
+        createdat as "createdAt",
+        updatedat as "updatedAt";
+    `;
+    return rows[0];
+  },
+  setActive: async (id: string, active: boolean) => {
+    const sql = await getDb();
+    const rows = await sql<ProductRow>`
+      update "Product"
+      set active = ${active}, updatedat = now()
+      where id = ${id}
+      returning
+        id,
+        slug,
+        name,
+        description,
+        category,
+        sku,
+        stock,
+        pricecents as "priceCents",
+        currency,
+        active,
+        images,
+        createdat as "createdAt",
+        updatedat as "updatedAt";
     `;
     return rows[0];
   },
@@ -455,6 +736,256 @@ export const orderRepository = {
         updatedat as "updatedAt";
     `;
     return rows[0];
+  },
+};
+
+export const addressRepository = {
+  listByUser: async (userId: string) => {
+    const sql = await getDb();
+    const rows = await sql<AddressRow>`
+      select
+        id,
+        userid as "userId",
+        type,
+        label,
+        name,
+        line1,
+        line2,
+        city,
+        region,
+        postalcode as "postalCode",
+        country,
+        phone,
+        isdefault as "isDefault",
+        createdat as "createdAt",
+        updatedat as "updatedAt"
+      from "Address"
+      where userid = ${userId}
+      order by createdat desc;
+    `;
+    return rows;
+  },
+  findById: async (userId: string, id: string) => {
+    const sql = await getDb();
+    const rows = await sql<AddressRow>`
+      select
+        id,
+        userid as "userId",
+        type,
+        label,
+        name,
+        line1,
+        line2,
+        city,
+        region,
+        postalcode as "postalCode",
+        country,
+        phone,
+        isdefault as "isDefault",
+        createdat as "createdAt",
+        updatedat as "updatedAt"
+      from "Address"
+      where userid = ${userId} and id = ${id}
+      limit 1;
+    `;
+    return rows[0];
+  },
+  create: async (
+    userId: string,
+    address: {
+      type: string;
+      label: string | null;
+      name: string | null;
+      line1: string;
+      line2: string | null;
+      city: string;
+      region: string | null;
+      postalCode: string | null;
+      country: string;
+      phone: string | null;
+      isDefault: boolean;
+    },
+  ) => {
+    const sql = await getDb();
+    return await sql.transaction(async (tx) => {
+      if (address.isDefault) {
+        await tx`
+          update "Address"
+          set isdefault = false, updatedat = now()
+          where userid = ${userId} and type = ${address.type};
+        `;
+      }
+      const rows = await tx<AddressRow>`
+        insert into "Address" (
+          userid,
+          type,
+          label,
+          name,
+          line1,
+          line2,
+          city,
+          region,
+          postalcode,
+          country,
+          phone,
+          isdefault
+        ) values (
+          ${userId},
+          ${address.type},
+          ${address.label},
+          ${address.name},
+          ${address.line1},
+          ${address.line2},
+          ${address.city},
+          ${address.region},
+          ${address.postalCode},
+          ${address.country},
+          ${address.phone},
+          ${address.isDefault}
+        )
+        returning
+          id,
+          userid as "userId",
+          type,
+          label,
+          name,
+          line1,
+          line2,
+          city,
+          region,
+          postalcode as "postalCode",
+          country,
+          phone,
+          isdefault as "isDefault",
+          createdat as "createdAt",
+          updatedat as "updatedAt";
+      `;
+      return rows[0];
+    });
+  },
+  update: async (
+    userId: string,
+    id: string,
+    address: {
+      type: string;
+      label: string | null;
+      name: string | null;
+      line1: string;
+      line2: string | null;
+      city: string;
+      region: string | null;
+      postalCode: string | null;
+      country: string;
+      phone: string | null;
+      isDefault: boolean;
+    },
+  ) => {
+    const sql = await getDb();
+    return await sql.transaction(async (tx) => {
+      if (address.isDefault) {
+        await tx`
+          update "Address"
+          set isdefault = false, updatedat = now()
+          where userid = ${userId} and type = ${address.type};
+        `;
+      }
+      const rows = await tx<AddressRow>`
+        update "Address"
+        set
+          type = ${address.type},
+          label = ${address.label},
+          name = ${address.name},
+          line1 = ${address.line1},
+          line2 = ${address.line2},
+          city = ${address.city},
+          region = ${address.region},
+          postalcode = ${address.postalCode},
+          country = ${address.country},
+          phone = ${address.phone},
+          isdefault = ${address.isDefault},
+          updatedat = now()
+        where userid = ${userId} and id = ${id}
+        returning
+          id,
+          userid as "userId",
+          type,
+          label,
+          name,
+          line1,
+          line2,
+          city,
+          region,
+          postalcode as "postalCode",
+          country,
+          phone,
+          isdefault as "isDefault",
+          createdat as "createdAt",
+          updatedat as "updatedAt";
+      `;
+      return rows[0];
+    });
+  },
+  remove: async (userId: string, id: string) => {
+    const sql = await getDb();
+    await sql`
+      delete from "Address"
+      where userid = ${userId} and id = ${id};
+    `;
+  },
+  setDefault: async (userId: string, id: string) => {
+    const sql = await getDb();
+    return await sql.transaction(async (tx) => {
+      const rows = await tx<AddressRow>`
+        select
+          id,
+          userid as "userId",
+          type,
+          label,
+          name,
+          line1,
+          line2,
+          city,
+          region,
+          postalcode as "postalCode",
+          country,
+          phone,
+          isdefault as "isDefault",
+          createdat as "createdAt",
+          updatedat as "updatedAt"
+        from "Address"
+        where userid = ${userId} and id = ${id}
+        limit 1;
+      `;
+      const target = rows[0];
+      if (!target) return null;
+      await tx`
+        update "Address"
+        set isdefault = false, updatedat = now()
+        where userid = ${userId} and type = ${target.type};
+      `;
+      const updated = await tx<AddressRow>`
+        update "Address"
+        set isdefault = true, updatedat = now()
+        where userid = ${userId} and id = ${id}
+        returning
+          id,
+          userid as "userId",
+          type,
+          label,
+          name,
+          line1,
+          line2,
+          city,
+          region,
+          postalcode as "postalCode",
+          country,
+          phone,
+          isdefault as "isDefault",
+          createdat as "createdAt",
+          updatedat as "updatedAt";
+      `;
+      return updated[0];
+    });
   },
 };
 

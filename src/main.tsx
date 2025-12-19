@@ -7,6 +7,7 @@ import { authMiddleware, requireRole, requireUser } from "./middleware/auth.ts";
 import { authRoutes } from "./routes/auth.tsx";
 import { OrderStatus, Role } from "./types/domain.ts";
 import {
+  addressRepository,
   cartRepository,
   orderRepository,
   productRepository,
@@ -14,6 +15,15 @@ import {
 } from "./db/repositories.ts";
 import { getCookie, setCookie } from "hono/cookie";
 import type { AuthUser } from "./middleware/auth.ts";
+import {
+  collectErrors,
+  parseEmail,
+  parseMoneyCents,
+  parseOptionalInt,
+  parseString,
+} from "./lib/validation.ts";
+import { hashPassword, verifyPassword } from "./lib/crypto.ts";
+import { ensureCsrfToken, validateCsrf } from "./auth/csrf.ts";
 import Stripe from "stripe";
 
 const startTime = Date.now();
@@ -540,11 +550,14 @@ const demoCatalog: DbProduct[] = products.map((product) => ({
   name: product.name,
   description: product.description,
   category: product.category,
+  sku: null,
+  stock: null,
   priceCents: Math.round(product.price * 100),
   currency: "USD",
   active: true,
   images: [product.image],
   createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
 }));
 
 type DbCartItemRow = Awaited<
@@ -574,6 +587,10 @@ const stripeEnabled = Boolean(
 
 type AccountOrder = Awaited<
   ReturnType<typeof orderRepository.listByUser>
+>[number];
+
+type AccountAddress = Awaited<
+  ReturnType<typeof addressRepository.listByUser>
 >[number];
 
 type AdminOrder = Awaited<ReturnType<typeof orderRepository.listAll>>[number];
@@ -1132,9 +1149,20 @@ const statusBadge = (status: OrderStatus) => {
 type AccountPageProps = {
   user: { name?: string | null; email?: string | null; role: Role };
   orders: AccountOrder[];
+  addresses: AccountAddress[];
+  notice?: string;
+  error?: string;
+  csrfToken: string;
 };
 
-const AccountPage = ({ user, orders }: AccountPageProps) => {
+const AccountPage = ({
+  user,
+  orders,
+  addresses,
+  notice,
+  error,
+  csrfToken,
+}: AccountPageProps) => {
   const totalSpent = orders.reduce(
     (sum, order) => sum + (order.amountCents ?? 0),
     0,
@@ -1155,6 +1183,14 @@ const AccountPage = ({ user, orders }: AccountPageProps) => {
           </p>
         </header>
 
+        {(notice || error) && (
+          <div
+            class={`alert ${error ? "alert-error" : "alert-success"} text-sm`}
+          >
+            {error ?? notice}
+          </div>
+        )}
+
         <section class="grid gap-4 sm:grid-cols-3">
           <div class="rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm">
             <p class="text-sm text-base-content/60">Email</p>
@@ -1168,6 +1204,174 @@ const AccountPage = ({ user, orders }: AccountPageProps) => {
             <p class="text-sm text-base-content/60">Total spent</p>
             <p class="font-semibold">{formatMoneyCents(totalSpent || 0)}</p>
           </div>
+        </section>
+
+        <section class="grid gap-4 lg:grid-cols-2">
+          <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-4">
+            <div>
+              <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+                Profile
+              </p>
+              <h2 class="text-xl font-semibold">Update profile</h2>
+            </div>
+            <form method="POST" action="/account/profile" class="space-y-4">
+              <input type="hidden" name="_csrf" value={csrfToken} />
+              <label class="form-control w-full">
+                <span class="label-text">Name</span>
+                <input
+                  class="input input-bordered w-full"
+                  name="name"
+                  defaultValue={user.name ?? ""}
+                />
+              </label>
+              <label class="form-control w-full">
+                <span class="label-text">Email</span>
+                <input
+                  class="input input-bordered w-full"
+                  type="email"
+                  name="email"
+                  required
+                  defaultValue={user.email ?? ""}
+                />
+              </label>
+              <button type="submit" class="btn btn-primary btn-sm">
+                Save profile
+              </button>
+            </form>
+          </div>
+
+          <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-4">
+            <div>
+              <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+                Security
+              </p>
+              <h2 class="text-xl font-semibold">Change password</h2>
+            </div>
+            <form method="POST" action="/account/password" class="space-y-4">
+              <input type="hidden" name="_csrf" value={csrfToken} />
+              <label class="form-control w-full">
+                <span class="label-text">Current password</span>
+                <input
+                  class="input input-bordered w-full"
+                  type="password"
+                  name="currentPassword"
+                  autoComplete="current-password"
+                />
+              </label>
+              <label class="form-control w-full">
+                <span class="label-text">New password</span>
+                <input
+                  class="input input-bordered w-full"
+                  type="password"
+                  name="newPassword"
+                  minLength={8}
+                  autoComplete="new-password"
+                />
+              </label>
+              <label class="form-control w-full">
+                <span class="label-text">Confirm new password</span>
+                <input
+                  class="input input-bordered w-full"
+                  type="password"
+                  name="confirmPassword"
+                  minLength={8}
+                  autoComplete="new-password"
+                />
+              </label>
+              <button type="submit" class="btn btn-outline btn-sm">
+                Update password
+              </button>
+            </form>
+          </div>
+        </section>
+
+        <section class="space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+                Addresses
+              </p>
+              <h2 class="text-xl font-semibold">Address book</h2>
+            </div>
+            <a href="/account/addresses/new" class="btn btn-primary btn-sm">
+              Add address
+            </a>
+          </div>
+          {addresses.length === 0
+            ? (
+              <div class="rounded-2xl border border-base-300 bg-base-100 p-6 text-center shadow-sm">
+                <p class="font-semibold">No saved addresses</p>
+                <p class="text-sm text-base-content/70">
+                  Add a shipping or billing address to speed up checkout.
+                </p>
+              </div>
+            )
+            : (
+              <div class="grid gap-4 md:grid-cols-2">
+                {addresses.map((address) => (
+                  <div
+                    key={address.id}
+                    class="rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm space-y-3"
+                  >
+                    <div class="flex items-start justify-between">
+                      <div>
+                        <p class="text-xs uppercase tracking-[0.16em] text-primary/80">
+                          {address.type === "BILLING" ? "Billing" : "Shipping"}
+                        </p>
+                        <h3 class="text-lg font-semibold">
+                          {address.label ?? address.name ?? "Address"}
+                        </h3>
+                      </div>
+                      {address.isDefault && (
+                        <span class="badge badge-primary badge-sm">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <div class="text-sm text-base-content/70">
+                      {address.name && <p>{address.name}</p>}
+                      <p>{address.line1}</p>
+                      {address.line2 && <p>{address.line2}</p>}
+                      <p>
+                        {address.city}
+                        {address.region ? `, ${address.region}` : ""}{" "}
+                        {address.postalCode ?? ""}
+                      </p>
+                      <p>{address.country}</p>
+                      {address.phone && <p>{address.phone}</p>}
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                      <a
+                        href={`/account/addresses/${address.id}/edit`}
+                        class="btn btn-outline btn-xs"
+                      >
+                        Edit
+                      </a>
+                      {!address.isDefault && (
+                        <form
+                          method="POST"
+                          action={`/account/addresses/${address.id}/default`}
+                        >
+                          <input type="hidden" name="_csrf" value={csrfToken} />
+                          <button type="submit" class="btn btn-ghost btn-xs">
+                            Make default
+                          </button>
+                        </form>
+                      )}
+                      <form
+                        method="POST"
+                        action={`/account/addresses/${address.id}/delete`}
+                      >
+                        <input type="hidden" name="_csrf" value={csrfToken} />
+                        <button type="submit" class="btn btn-ghost btn-xs">
+                          Delete
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
         </section>
 
         <section class="space-y-3">
@@ -1238,6 +1442,172 @@ const AccountPage = ({ user, orders }: AccountPageProps) => {
     </PageShell>
   );
 };
+
+type AddressFormValues = {
+  type: string;
+  label: string;
+  name: string;
+  line1: string;
+  line2: string;
+  city: string;
+  region: string;
+  postalCode: string;
+  country: string;
+  phone: string;
+  isDefault: boolean;
+};
+
+const AddressFormPage = (
+  {
+    title,
+    action,
+    values,
+    error,
+    csrfToken,
+  }: {
+    title: string;
+    action: string;
+    values: AddressFormValues;
+    error?: string;
+    csrfToken: string;
+  },
+) => (
+  <PageShell>
+    <main class="mx-auto max-w-2xl space-y-6">
+      <div class="space-y-2">
+        <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+          Account
+        </p>
+        <h1 class="text-3xl font-bold">{title}</h1>
+        <p class="text-sm text-base-content/70">
+          Keep your shipping and billing details up to date.
+        </p>
+      </div>
+      {error && <div class="alert alert-error text-sm">{error}</div>}
+      <form method="POST" action={action} class="space-y-4">
+        <input type="hidden" name="_csrf" value={csrfToken} />
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="form-control w-full">
+            <span class="label-text">Type</span>
+            <select
+              class="select select-bordered w-full"
+              name="type"
+              required
+            >
+              <option
+                value="SHIPPING"
+                selected={values.type === "SHIPPING"}
+              >
+                Shipping
+              </option>
+              <option value="BILLING" selected={values.type === "BILLING"}>
+                Billing
+              </option>
+            </select>
+          </label>
+          <label class="form-control w-full">
+            <span class="label-text">Label</span>
+            <input
+              class="input input-bordered w-full"
+              name="label"
+              placeholder="Home, Studio, Office"
+              value={values.label}
+            />
+          </label>
+        </div>
+        <label class="form-control w-full">
+          <span class="label-text">Full name</span>
+          <input
+            class="input input-bordered w-full"
+            name="name"
+            required
+            value={values.name}
+          />
+        </label>
+        <label class="form-control w-full">
+          <span class="label-text">Address line 1</span>
+          <input
+            class="input input-bordered w-full"
+            name="line1"
+            required
+            value={values.line1}
+          />
+        </label>
+        <label class="form-control w-full">
+          <span class="label-text">Address line 2</span>
+          <input
+            class="input input-bordered w-full"
+            name="line2"
+            value={values.line2}
+          />
+        </label>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="form-control w-full">
+            <span class="label-text">City</span>
+            <input
+              class="input input-bordered w-full"
+              name="city"
+              required
+              value={values.city}
+            />
+          </label>
+          <label class="form-control w-full">
+            <span class="label-text">Region / State</span>
+            <input
+              class="input input-bordered w-full"
+              name="region"
+              value={values.region}
+            />
+          </label>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="form-control w-full">
+            <span class="label-text">Postal code</span>
+            <input
+              class="input input-bordered w-full"
+              name="postalCode"
+              value={values.postalCode}
+            />
+          </label>
+          <label class="form-control w-full">
+            <span class="label-text">Country</span>
+            <input
+              class="input input-bordered w-full"
+              name="country"
+              required
+              value={values.country}
+            />
+          </label>
+        </div>
+        <label class="form-control w-full">
+          <span class="label-text">Phone</span>
+          <input
+            class="input input-bordered w-full"
+            name="phone"
+            value={values.phone}
+          />
+        </label>
+        <label class="label cursor-pointer justify-start gap-3">
+          <input
+            type="checkbox"
+            name="isDefault"
+            class="checkbox checkbox-primary checkbox-sm"
+            checked={values.isDefault}
+          />
+          <span class="label-text">Set as default for this type</span>
+        </label>
+        <div class="flex gap-2">
+          <button type="submit" class="btn btn-primary btn-sm">
+            Save address
+          </button>
+          <a href="/account" class="btn btn-ghost btn-sm">
+            Cancel
+          </a>
+        </div>
+      </form>
+    </main>
+  </PageShell>
+);
 
 const OrderDetailPage = (
   { order }: { order: AccountOrder },
@@ -1363,9 +1733,15 @@ const AdminOrdersPage = ({ orders }: AdminOrdersPageProps) => (
   </PageShell>
 );
 
-type AdminProductsPageProps = { products: DbProduct[] };
+type AdminProductsPageProps = {
+  products: DbProduct[];
+  csrfToken: string;
+  notice?: string;
+};
 
-const AdminProductsPage = ({ products }: AdminProductsPageProps) => (
+const AdminProductsPage = (
+  { products, csrfToken, notice }: AdminProductsPageProps,
+) => (
   <PageShell>
     <main class="space-y-6">
       <div class="flex items-center justify-between">
@@ -1375,8 +1751,14 @@ const AdminProductsPage = ({ products }: AdminProductsPageProps) => (
           </p>
           <h1 class="text-3xl font-bold">Products</h1>
         </div>
-        <a href="/admin" class="btn btn-ghost btn-sm">Back to admin</a>
+        <div class="flex items-center gap-2">
+          <a href="/admin/products/new" class="btn btn-primary btn-sm">
+            New product
+          </a>
+          <a href="/admin" class="btn btn-ghost btn-sm">Back to admin</a>
+        </div>
       </div>
+      {notice && <div class="alert alert-success text-sm">{notice}</div>}
       <div class="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm">
         <table class="table table-zebra">
           <thead>
@@ -1384,9 +1766,11 @@ const AdminProductsPage = ({ products }: AdminProductsPageProps) => (
               <th>Name</th>
               <th>Slug</th>
               <th>Category</th>
+              <th>SKU</th>
+              <th>Stock</th>
               <th>Price</th>
-              <th>Active</th>
-              <th>Created</th>
+              <th>Status</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -1395,16 +1779,191 @@ const AdminProductsPage = ({ products }: AdminProductsPageProps) => (
                 <td>{product.name}</td>
                 <td>{product.slug}</td>
                 <td>{product.category ?? "—"}</td>
+                <td>{product.sku ?? "—"}</td>
+                <td>{product.stock ?? "—"}</td>
                 <td>
                   {formatMoneyCents(product.priceCents, product.currency)}
                 </td>
-                <td>{product.active ? "Yes" : "No"}</td>
-                <td>{formatDate(product.createdAt)}</td>
+                <td>{product.active ? "Active" : "Archived"}</td>
+                <td>
+                  <div class="flex flex-wrap gap-2">
+                    <a
+                      href={`/admin/products/${product.id}/edit`}
+                      class="btn btn-ghost btn-xs"
+                    >
+                      Edit
+                    </a>
+                    <form
+                      method="POST"
+                      action={`/admin/products/${product.id}/status`}
+                    >
+                      <input type="hidden" name="_csrf" value={csrfToken} />
+                      <input
+                        type="hidden"
+                        name="active"
+                        value={product.active ? "false" : "true"}
+                      />
+                      <button type="submit" class="btn btn-ghost btn-xs">
+                        {product.active ? "Archive" : "Activate"}
+                      </button>
+                    </form>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+    </main>
+  </PageShell>
+);
+
+type AdminProductFormValues = {
+  name: string;
+  slug: string;
+  category: string;
+  sku: string;
+  stock: string;
+  price: string;
+  currency: string;
+  description: string;
+  images: string;
+  active: boolean;
+};
+
+const AdminProductFormPage = (
+  {
+    title,
+    action,
+    values,
+    error,
+    csrfToken,
+  }: {
+    title: string;
+    action: string;
+    values: AdminProductFormValues;
+    error?: string;
+    csrfToken: string;
+  },
+) => (
+  <PageShell>
+    <main class="mx-auto max-w-3xl space-y-6">
+      <div class="flex items-center justify-between">
+        <div class="space-y-2">
+          <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+            Admin
+          </p>
+          <h1 class="text-3xl font-bold">{title}</h1>
+        </div>
+        <a href="/admin/products" class="btn btn-ghost btn-sm">
+          Back to products
+        </a>
+      </div>
+      {error && <div class="alert alert-error text-sm">{error}</div>}
+      <form method="POST" action={action} class="space-y-5">
+        <input type="hidden" name="_csrf" value={csrfToken} />
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="form-control w-full">
+            <span class="label-text">Name</span>
+            <input
+              class="input input-bordered w-full"
+              name="name"
+              required
+              value={values.name}
+            />
+          </label>
+          <label class="form-control w-full">
+            <span class="label-text">Slug</span>
+            <input
+              class="input input-bordered w-full"
+              name="slug"
+              placeholder="auto-generated if empty"
+              value={values.slug}
+            />
+          </label>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-3">
+          <label class="form-control w-full">
+            <span class="label-text">Category</span>
+            <input
+              class="input input-bordered w-full"
+              name="category"
+              value={values.category}
+            />
+          </label>
+          <label class="form-control w-full">
+            <span class="label-text">SKU</span>
+            <input
+              class="input input-bordered w-full"
+              name="sku"
+              value={values.sku}
+            />
+          </label>
+          <label class="form-control w-full">
+            <span class="label-text">Stock</span>
+            <input
+              class="input input-bordered w-full"
+              name="stock"
+              inputMode="numeric"
+              value={values.stock}
+            />
+          </label>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-3">
+          <label class="form-control w-full">
+            <span class="label-text">Price (USD)</span>
+            <input
+              class="input input-bordered w-full"
+              name="price"
+              required
+              inputMode="decimal"
+              value={values.price}
+            />
+          </label>
+          <label class="form-control w-full">
+            <span class="label-text">Currency</span>
+            <input
+              class="input input-bordered w-full"
+              name="currency"
+              value={values.currency}
+            />
+          </label>
+          <label class="label cursor-pointer justify-start gap-3 mt-7">
+            <input
+              type="checkbox"
+              name="active"
+              class="checkbox checkbox-primary checkbox-sm"
+              checked={values.active}
+            />
+            <span class="label-text">Active</span>
+          </label>
+        </div>
+        <label class="form-control w-full">
+          <span class="label-text">Description</span>
+          <textarea
+            class="textarea textarea-bordered min-h-[120px]"
+            name="description"
+            value={values.description}
+          />
+        </label>
+        <label class="form-control w-full">
+          <span class="label-text">Image URLs</span>
+          <textarea
+            class="textarea textarea-bordered min-h-[120px]"
+            name="images"
+            placeholder="One URL per line"
+            value={values.images}
+          />
+        </label>
+        <div class="flex gap-2">
+          <button type="submit" class="btn btn-primary btn-sm">
+            Save product
+          </button>
+          <a href="/admin/products" class="btn btn-ghost btn-sm">
+            Cancel
+          </a>
+        </div>
+      </form>
     </main>
   </PageShell>
 );
@@ -1425,6 +1984,90 @@ const buildProductsHref = (
   if (options.page > 1) params.set("page", String(options.page));
   const search = params.toString();
   return search ? `/products?${search}` : "/products";
+};
+
+const slugify = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
+
+const normalizeCurrency = (value: string | undefined) => {
+  const trimmed = value?.toString().trim().toUpperCase();
+  return trimmed || "USD";
+};
+
+const parseImageList = (input: string | undefined) => {
+  const items = (input ?? "")
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return items.length ? items : null;
+};
+
+const productFormValuesFromRow = (
+  product: DbProduct,
+): AdminProductFormValues => ({
+  name: product.name,
+  slug: product.slug,
+  category: product.category ?? "",
+  sku: product.sku ?? "",
+  stock: product.stock !== null ? String(product.stock) : "",
+  price: (product.priceCents / 100).toFixed(2),
+  currency: product.currency ?? "USD",
+  description: product.description ?? "",
+  images: product.images?.join("\n") ?? "",
+  active: product.active,
+});
+
+const productFormValuesFromForm = (
+  form: Record<string, string>,
+): AdminProductFormValues => ({
+  name: normalizeOptional(form.name),
+  slug: normalizeOptional(form.slug),
+  category: normalizeOptional(form.category),
+  sku: normalizeOptional(form.sku),
+  stock: normalizeOptional(form.stock),
+  price: normalizeOptional(form.price),
+  currency: normalizeCurrency(form.currency),
+  description: normalizeOptional(form.description),
+  images: normalizeOptional(form.images),
+  active: form.active === "on" || form.active === "true" || form.active === "1",
+});
+
+const parseProductForm = (form: Record<string, string>) => {
+  const name = parseString(form.name, "Name", { minLength: 2 });
+  const slugInput = normalizeOptional(form.slug);
+  const slug = slugInput || (name.ok ? slugify(name.value) : "");
+  const priceCents = parseMoneyCents(form.price, "Price");
+  const stock = parseOptionalInt(form.stock, "Stock");
+  const errors = collectErrors([name, priceCents, stock]);
+  if (!slug) {
+    errors.push("Slug is required.");
+  } else if (!/^[a-z0-9-]+$/.test(slug)) {
+    errors.push("Slug must contain only letters, numbers, and dashes.");
+  }
+  if (errors.length) {
+    return { ok: false as const, error: errors.join(" ") };
+  }
+
+  return {
+    ok: true as const,
+    value: {
+      name: name.value,
+      slug,
+      category: toOptionalValue(form.category),
+      sku: toOptionalValue(form.sku),
+      stock: stock.value,
+      priceCents: priceCents.value,
+      currency: normalizeCurrency(form.currency),
+      description: toOptionalValue(form.description),
+      images: parseImageList(form.images),
+      active: form.active === "on" || form.active === "true" ||
+        form.active === "1",
+    },
+  };
 };
 
 const filterDemoCatalog = (options: { category: string; query: string }) => {
@@ -1899,7 +2542,92 @@ app.get("/privacy", (c: Context) =>
     { title: "Privacy · Hono Shop" },
   ));
 
-app.get("/account", requireUser(), (c: Context) => c.notFound());
+const normalizeOptional = (value: string | undefined): string =>
+  value?.toString().trim() ?? "";
+
+const toOptionalValue = (value: string | undefined): string | null => {
+  const trimmed = value?.toString().trim();
+  return trimmed ? trimmed : null;
+};
+
+const normalizeAddressType = (value: string | undefined) => {
+  const upper = value?.toString().trim().toUpperCase();
+  if (upper === "SHIPPING" || upper === "BILLING") return upper;
+  return null;
+};
+
+const emptyAddressValues = (): AddressFormValues => ({
+  type: "SHIPPING",
+  label: "",
+  name: "",
+  line1: "",
+  line2: "",
+  city: "",
+  region: "",
+  postalCode: "",
+  country: "",
+  phone: "",
+  isDefault: false,
+});
+
+const addressValuesFromRow = (address: AccountAddress): AddressFormValues => ({
+  type: address.type ?? "SHIPPING",
+  label: address.label ?? "",
+  name: address.name ?? "",
+  line1: address.line1 ?? "",
+  line2: address.line2 ?? "",
+  city: address.city ?? "",
+  region: address.region ?? "",
+  postalCode: address.postalCode ?? "",
+  country: address.country ?? "",
+  phone: address.phone ?? "",
+  isDefault: address.isDefault ?? false,
+});
+
+const addressValuesFromForm = (
+  form: Record<string, string>,
+): AddressFormValues => ({
+  type: normalizeAddressType(form.type) ?? "SHIPPING",
+  label: normalizeOptional(form.label),
+  name: normalizeOptional(form.name),
+  line1: normalizeOptional(form.line1),
+  line2: normalizeOptional(form.line2),
+  city: normalizeOptional(form.city),
+  region: normalizeOptional(form.region),
+  postalCode: normalizeOptional(form.postalCode),
+  country: normalizeOptional(form.country),
+  phone: normalizeOptional(form.phone),
+  isDefault: form.isDefault === "on" || form.isDefault === "1",
+});
+
+const parseAddressForm = (form: Record<string, string>) => {
+  const type = normalizeAddressType(form.type);
+  const name = parseString(form.name, "Full name", { minLength: 2 });
+  const line1 = parseString(form.line1, "Address line 1", { minLength: 3 });
+  const city = parseString(form.city, "City", { minLength: 2 });
+  const country = parseString(form.country, "Country", { minLength: 2 });
+  const errors = collectErrors([name, line1, city, country]);
+  if (!type) errors.push("Address type is invalid.");
+  if (errors.length) {
+    return { ok: false as const, error: errors.join(" ") };
+  }
+  return {
+    ok: true as const,
+    value: {
+      type,
+      label: toOptionalValue(form.label),
+      name: name.value,
+      line1: line1.value,
+      line2: toOptionalValue(form.line2),
+      city: city.value,
+      region: toOptionalValue(form.region),
+      postalCode: toOptionalValue(form.postalCode),
+      country: country.value,
+      phone: toOptionalValue(form.phone),
+      isDefault: form.isDefault === "on" || form.isDefault === "1",
+    },
+  };
+};
 
 app.get(
   "/account/orders",
@@ -1909,19 +2637,286 @@ app.get(
 
 app.get("/account", requireUser(), async (c: Context) => {
   const authUser = c.get("user") as AuthUser;
-  const [user, orders] = await Promise.all([
+  const [user, orders, addresses] = await Promise.all([
     userRepository.findActiveById(authUser.id),
     orderRepository.listByUser(authUser.id),
+    addressRepository.listByUser(authUser.id),
   ]);
+  const notice = c.req.query("notice") ?? undefined;
+  const error = c.req.query("error") ?? undefined;
+  const csrfToken = ensureCsrfToken(c);
 
   return c.render(
     <AccountPage
       user={{ name: user?.name, email: user?.email, role: authUser.role }}
       orders={orders}
+      addresses={addresses}
+      notice={notice}
+      error={error}
+      csrfToken={csrfToken}
     />,
     { title: "Account · Hono Shop" },
   );
 });
+
+app.post("/account/profile", requireUser(), async (c: Context) => {
+  const form = await c.req.parseBody() as Record<string, string>;
+  if (!validateCsrf(c, form._csrf)) {
+    return c.redirect("/account?error=Session%20expired.", 303);
+  }
+
+  const authUser = c.get("user") as AuthUser;
+  const nameValue = normalizeOptional(form.name);
+  const email = parseEmail(form.email);
+  const errors = collectErrors([email]);
+  if (nameValue && nameValue.length < 2) {
+    errors.push("Name must be at least 2 characters.");
+  }
+  if (errors.length) {
+    return c.redirect(
+      `/account?error=${encodeURIComponent(errors.join(" "))}`,
+      303,
+    );
+  }
+  if (!email.ok) {
+    return c.redirect("/account?error=Invalid%20email.", 303);
+  }
+
+  try {
+    const existing = await userRepository.findByEmailAny(email.value);
+    if (existing && existing.id !== authUser.id) {
+      return c.redirect(
+        "/account?error=That%20email%20is%20already%20in%20use.",
+        303,
+      );
+    }
+    await userRepository.updateProfile(authUser.id, {
+      email: email.value,
+      name: nameValue ? nameValue : null,
+    });
+    return c.redirect("/account?notice=Profile%20updated.", 303);
+  } catch (error) {
+    console.error("Profile update failed:", error);
+    return c.redirect(
+      "/account?error=Could%20not%20update%20profile.",
+      303,
+    );
+  }
+});
+
+app.post("/account/password", requireUser(), async (c: Context) => {
+  const form = await c.req.parseBody() as Record<string, string>;
+  if (!validateCsrf(c, form._csrf)) {
+    return c.redirect("/account?error=Session%20expired.", 303);
+  }
+
+  const currentPassword = form.currentPassword?.toString() ?? "";
+  const newPassword = form.newPassword?.toString() ?? "";
+  const confirmPassword = form.confirmPassword?.toString() ?? "";
+
+  if (!newPassword || !confirmPassword) {
+    return c.redirect("/account?error=Enter%20a%20new%20password.", 303);
+  }
+
+  if (newPassword !== confirmPassword) {
+    return c.redirect("/account?error=Passwords%20do%20not%20match.", 303);
+  }
+
+  const validatedPassword = parseString(newPassword, "Password", {
+    minLength: 8,
+  });
+  if (!validatedPassword.ok) {
+    return c.redirect(
+      `/account?error=${encodeURIComponent(validatedPassword.error)}`,
+      303,
+    );
+  }
+
+  try {
+    const authUser = c.get("user") as AuthUser;
+    const user = await userRepository.findActiveById(authUser.id);
+    if (!user || !user.passwordHash) {
+      return c.redirect("/account?error=Password%20not%20set.", 303);
+    }
+    const validCurrent = await verifyPassword(
+      currentPassword,
+      user.passwordHash,
+    );
+    if (!validCurrent) {
+      return c.redirect(
+        "/account?error=Current%20password%20is%20incorrect.",
+        303,
+      );
+    }
+    const passwordHash = await hashPassword(validatedPassword.value);
+    await userRepository.updatePassword(authUser.id, passwordHash);
+    return c.redirect("/account?notice=Password%20updated.", 303);
+  } catch (error) {
+    console.error("Password update failed:", error);
+    return c.redirect(
+      "/account?error=Could%20not%20update%20password.",
+      303,
+    );
+  }
+});
+
+app.get("/account/addresses/new", requireUser(), (c: Context) => {
+  const csrfToken = ensureCsrfToken(c);
+  return c.render(
+    <AddressFormPage
+      title="Add address"
+      action="/account/addresses"
+      values={emptyAddressValues()}
+      csrfToken={csrfToken}
+    />,
+    { title: "Add address · Hono Shop" },
+  );
+});
+
+app.get("/account/addresses/:id/edit", requireUser(), async (c: Context) => {
+  const authUser = c.get("user") as AuthUser;
+  const address = await addressRepository.findById(
+    authUser.id,
+    c.req.param("id"),
+  );
+  if (!address) return c.notFound();
+  const csrfToken = ensureCsrfToken(c);
+  return c.render(
+    <AddressFormPage
+      title="Edit address"
+      action={`/account/addresses/${address.id}`}
+      values={addressValuesFromRow(address)}
+      csrfToken={csrfToken}
+    />,
+    { title: "Edit address · Hono Shop" },
+  );
+});
+
+app.post("/account/addresses", requireUser(), async (c: Context) => {
+  const form = await c.req.parseBody() as Record<string, string>;
+  const csrfToken = ensureCsrfToken(c);
+  if (!validateCsrf(c, form._csrf)) {
+    return c.redirect("/account?error=Session%20expired.", 303);
+  }
+
+  const parsed = parseAddressForm(form);
+  if (!parsed.ok) {
+    return c.render(
+      <AddressFormPage
+        title="Add address"
+        action="/account/addresses"
+        values={addressValuesFromForm(form)}
+        error={parsed.error}
+        csrfToken={csrfToken}
+      />,
+      { title: "Add address · Hono Shop" },
+    );
+  }
+
+  try {
+    const authUser = c.get("user") as AuthUser;
+    await addressRepository.create(authUser.id, parsed.value);
+    return c.redirect("/account?notice=Address%20saved.", 303);
+  } catch (error) {
+    console.error("Address create failed:", error);
+    return c.render(
+      <AddressFormPage
+        title="Add address"
+        action="/account/addresses"
+        values={addressValuesFromForm(form)}
+        error="Could not save address."
+        csrfToken={csrfToken}
+      />,
+      { title: "Add address · Hono Shop" },
+    );
+  }
+});
+
+app.post("/account/addresses/:id", requireUser(), async (c: Context) => {
+  const form = await c.req.parseBody() as Record<string, string>;
+  const csrfToken = ensureCsrfToken(c);
+  if (!validateCsrf(c, form._csrf)) {
+    return c.redirect("/account?error=Session%20expired.", 303);
+  }
+
+  const parsed = parseAddressForm(form);
+  if (!parsed.ok) {
+    return c.render(
+      <AddressFormPage
+        title="Edit address"
+        action={`/account/addresses/${c.req.param("id")}`}
+        values={addressValuesFromForm(form)}
+        error={parsed.error}
+        csrfToken={csrfToken}
+      />,
+      { title: "Edit address · Hono Shop" },
+    );
+  }
+
+  try {
+    const authUser = c.get("user") as AuthUser;
+    const updated = await addressRepository.update(
+      authUser.id,
+      c.req.param("id"),
+      parsed.value,
+    );
+    if (!updated) return c.notFound();
+    return c.redirect("/account?notice=Address%20updated.", 303);
+  } catch (error) {
+    console.error("Address update failed:", error);
+    return c.render(
+      <AddressFormPage
+        title="Edit address"
+        action={`/account/addresses/${c.req.param("id")}`}
+        values={addressValuesFromForm(form)}
+        error="Could not update address."
+        csrfToken={csrfToken}
+      />,
+      { title: "Edit address · Hono Shop" },
+    );
+  }
+});
+
+app.post("/account/addresses/:id/delete", requireUser(), async (c: Context) => {
+  const form = await c.req.parseBody() as Record<string, string>;
+  if (!validateCsrf(c, form._csrf)) {
+    return c.redirect("/account?error=Session%20expired.", 303);
+  }
+  try {
+    const authUser = c.get("user") as AuthUser;
+    await addressRepository.remove(authUser.id, c.req.param("id"));
+    return c.redirect("/account?notice=Address%20removed.", 303);
+  } catch (error) {
+    console.error("Address delete failed:", error);
+    return c.redirect("/account?error=Could%20not%20remove%20address.", 303);
+  }
+});
+
+app.post(
+  "/account/addresses/:id/default",
+  requireUser(),
+  async (c: Context) => {
+    const form = await c.req.parseBody() as Record<string, string>;
+    if (!validateCsrf(c, form._csrf)) {
+      return c.redirect("/account?error=Session%20expired.", 303);
+    }
+    try {
+      const authUser = c.get("user") as AuthUser;
+      const updated = await addressRepository.setDefault(
+        authUser.id,
+        c.req.param("id"),
+      );
+      if (!updated) return c.notFound();
+      return c.redirect("/account?notice=Default%20updated.", 303);
+    } catch (error) {
+      console.error("Set default address failed:", error);
+      return c.redirect(
+        "/account?error=Could%20not%20update%20default.",
+        303,
+      );
+    }
+  },
+);
 
 app.get("/account/orders/:id", requireUser(), async (c: Context) => {
   const authUser = c.get("user") as AuthUser;
@@ -1960,7 +2955,7 @@ app.get("/admin", requireRole([Role.ADMIN]), (c: Context) =>
           <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-2">
             <h2 class="text-lg font-semibold">Products</h2>
             <p class="text-sm text-base-content/70">
-              View product catalog. Editing/CRUD will be added later.
+              Create, edit, and archive products in the catalog.
             </p>
             <a href="/admin/products" class="btn btn-outline btn-sm">
               View products
@@ -2005,14 +3000,221 @@ app.post(
 );
 
 app.get("/admin/products", requireRole([Role.ADMIN]), async (c: Context) => {
-  const products = await productRepository.listActive({
-    limit: 200,
-    offset: 0,
-  });
-  return c.render(<AdminProductsPage products={products} />, {
-    title: "Admin · Products",
-  });
+  const products = await productRepository.listAll({ limit: 200, offset: 0 });
+  const csrfToken = ensureCsrfToken(c);
+  const notice = c.req.query("notice") ?? undefined;
+  return c.render(
+    <AdminProductsPage
+      products={products}
+      csrfToken={csrfToken}
+      notice={notice}
+    />,
+    {
+      title: "Admin · Products",
+    },
+  );
 });
+
+app.get("/admin/products/new", requireRole([Role.ADMIN]), (c: Context) => {
+  const csrfToken = ensureCsrfToken(c);
+  return c.render(
+    <AdminProductFormPage
+      title="New product"
+      action="/admin/products"
+      values={{
+        name: "",
+        slug: "",
+        category: "",
+        sku: "",
+        stock: "",
+        price: "",
+        currency: "USD",
+        description: "",
+        images: "",
+        active: true,
+      }}
+      csrfToken={csrfToken}
+    />,
+    { title: "New product · Hono Shop" },
+  );
+});
+
+app.get(
+  "/admin/products/:id/edit",
+  requireRole([Role.ADMIN]),
+  async (c: Context) => {
+    const product = await productRepository.findByIdAdmin(c.req.param("id"));
+    if (!product) return c.notFound();
+    const csrfToken = ensureCsrfToken(c);
+    return c.render(
+      <AdminProductFormPage
+        title={`Edit ${product.name}`}
+        action={`/admin/products/${product.id}`}
+        values={productFormValuesFromRow(product)}
+        csrfToken={csrfToken}
+      />,
+      { title: `Edit ${product.name} · Hono Shop` },
+    );
+  },
+);
+
+app.post("/admin/products", requireRole([Role.ADMIN]), async (c: Context) => {
+  const form = await c.req.parseBody() as Record<string, string>;
+  const csrfToken = ensureCsrfToken(c);
+  if (!validateCsrf(c, form._csrf)) {
+    return c.render(
+      <AdminProductFormPage
+        title="New product"
+        action="/admin/products"
+        values={productFormValuesFromForm(form)}
+        error="Session expired. Please try again."
+        csrfToken={csrfToken}
+      />,
+      { title: "New product · Hono Shop" },
+    );
+  }
+
+  const parsed = parseProductForm(form);
+  if (!parsed.ok) {
+    return c.render(
+      <AdminProductFormPage
+        title="New product"
+        action="/admin/products"
+        values={productFormValuesFromForm(form)}
+        error={parsed.error}
+        csrfToken={csrfToken}
+      />,
+      { title: "New product · Hono Shop" },
+    );
+  }
+
+  try {
+    const existing = await productRepository.findBySlugAny(parsed.value.slug);
+    if (existing) {
+      return c.render(
+        <AdminProductFormPage
+          title="New product"
+          action="/admin/products"
+          values={productFormValuesFromForm(form)}
+          error="That slug is already in use."
+          csrfToken={csrfToken}
+        />,
+        { title: "New product · Hono Shop" },
+      );
+    }
+    await productRepository.create(parsed.value);
+    return c.redirect("/admin/products?notice=Product%20created.", 303);
+  } catch (error) {
+    console.error("Create product failed:", error);
+    return c.render(
+      <AdminProductFormPage
+        title="New product"
+        action="/admin/products"
+        values={productFormValuesFromForm(form)}
+        error="Could not create product."
+        csrfToken={csrfToken}
+      />,
+      { title: "New product · Hono Shop" },
+    );
+  }
+});
+
+app.post(
+  "/admin/products/:id",
+  requireRole([Role.ADMIN]),
+  async (c: Context) => {
+    const form = await c.req.parseBody() as Record<string, string>;
+    const csrfToken = ensureCsrfToken(c);
+    if (!validateCsrf(c, form._csrf)) {
+      return c.render(
+        <AdminProductFormPage
+          title="Edit product"
+          action={`/admin/products/${c.req.param("id")}`}
+          values={productFormValuesFromForm(form)}
+          error="Session expired. Please try again."
+          csrfToken={csrfToken}
+        />,
+        { title: "Edit product · Hono Shop" },
+      );
+    }
+
+    const parsed = parseProductForm(form);
+    if (!parsed.ok) {
+      return c.render(
+        <AdminProductFormPage
+          title="Edit product"
+          action={`/admin/products/${c.req.param("id")}`}
+          values={productFormValuesFromForm(form)}
+          error={parsed.error}
+          csrfToken={csrfToken}
+        />,
+        { title: "Edit product · Hono Shop" },
+      );
+    }
+
+    try {
+      const existing = await productRepository.findBySlugAny(parsed.value.slug);
+      if (existing && existing.id !== c.req.param("id")) {
+        return c.render(
+          <AdminProductFormPage
+            title="Edit product"
+            action={`/admin/products/${c.req.param("id")}`}
+            values={productFormValuesFromForm(form)}
+            error="That slug is already in use."
+            csrfToken={csrfToken}
+          />,
+          { title: "Edit product · Hono Shop" },
+        );
+      }
+
+      const updated = await productRepository.update(
+        c.req.param("id"),
+        parsed.value,
+      );
+      if (!updated) return c.notFound();
+      return c.redirect("/admin/products?notice=Product%20updated.", 303);
+    } catch (error) {
+      console.error("Update product failed:", error);
+      return c.render(
+        <AdminProductFormPage
+          title="Edit product"
+          action={`/admin/products/${c.req.param("id")}`}
+          values={productFormValuesFromForm(form)}
+          error="Could not update product."
+          csrfToken={csrfToken}
+        />,
+        { title: "Edit product · Hono Shop" },
+      );
+    }
+  },
+);
+
+app.post(
+  "/admin/products/:id/status",
+  requireRole([Role.ADMIN]),
+  async (c: Context) => {
+    const form = await c.req.parseBody() as Record<string, string>;
+    if (!validateCsrf(c, form._csrf)) {
+      return c.redirect("/admin/products?notice=Session%20expired.", 303);
+    }
+    const active = form.active?.toString() === "true";
+    try {
+      await productRepository.setActive(c.req.param("id"), active);
+      return c.redirect(
+        `/admin/products?notice=Product%20${
+          active ? "activated" : "archived"
+        }.`,
+        303,
+      );
+    } catch (error) {
+      console.error("Update product status failed:", error);
+      return c.redirect(
+        "/admin/products?notice=Could%20not%20update%20product.",
+        303,
+      );
+    }
+  },
+);
 
 app.get("/health", async (c: Context) => {
   const dbCheck = c.req.query("db") === "1"

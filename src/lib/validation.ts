@@ -48,5 +48,29 @@ export const parsePositiveInt = (
   return ok(floored);
 };
 
+export const parseOptionalInt = (
+  input: unknown,
+  field: string,
+): ValidationResult<number | null> => {
+  if (input === undefined || input === null || input === "") return ok(null);
+  const parsed = Number(input);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return err(`${field} must be zero or greater.`);
+  }
+  return ok(Math.floor(parsed));
+};
+
+export const parseMoneyCents = (
+  input: unknown,
+  field: string,
+): ValidationResult<number> => {
+  if (typeof input !== "string") return err(`${field} is required.`);
+  const parsed = Number(input);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return err(`${field} must be greater than zero.`);
+  }
+  return ok(Math.round(parsed * 100));
+};
+
 export const collectErrors = (results: ValidationResult<unknown>[]) =>
   results.flatMap((result) => (result.ok ? [] : [result.error]));
