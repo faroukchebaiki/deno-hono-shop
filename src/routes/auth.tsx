@@ -5,9 +5,11 @@ import type { Child } from "hono/jsx";
 import type { Role } from "../types/domain.ts";
 import { ensureCsrfToken, validateCsrf } from "../auth/csrf.ts";
 import { clearAuthCookie, issueAuthCookie } from "../middleware/auth.ts";
+import type { AuthUser } from "../middleware/auth.ts";
 import { hashPassword, verifyPassword } from "../lib/crypto.ts";
 import { collectErrors, parseEmail, parseString } from "../lib/validation.ts";
 import { userRepository } from "../db/repositories.ts";
+import { logError } from "../lib/logger.ts";
 
 const auth = new Hono();
 const demoEmails = new Set([
@@ -166,8 +168,9 @@ const setSessionCookie = async (
   c: Hono.Context,
   userId: string,
   role: Role,
+  sessionVersion = 0,
 ) => {
-  const cookie = await issueAuthCookie(userId, role);
+  const cookie = await issueAuthCookie(userId, role, sessionVersion);
   setCookie(c, cookie.name, cookie.value, cookie.attributes);
 };
 
@@ -221,10 +224,11 @@ auth.post("/login", async (c) => {
       return renderLogin(c, { error: "Invalid credentials.", returnTo });
     }
 
-    await setSessionCookie(c, user.id, user.role);
+    await setSessionCookie(c, user.id, user.role, user.sessionVersion);
     return c.redirect(returnTo || "/");
   } catch (err) {
-    console.error("Login error:", err);
+    const requestId = c.get("requestId");
+    logError("auth.login.failed", err, { requestId });
     return renderLogin(c, {
       error: "Could not sign in. Check database connection and try again.",
       returnTo,
@@ -272,10 +276,11 @@ auth.post("/register", async (c) => {
       passwordHash,
       name,
     );
-    await setSessionCookie(c, user.id, user.role);
+    await setSessionCookie(c, user.id, user.role, user.sessionVersion);
     return c.redirect("/");
   } catch (err) {
-    console.error("Register error:", err);
+    const requestId = c.get("requestId");
+    logError("auth.register.failed", err, { requestId });
     return renderRegister(c, {
       error:
         "Could not create account. Check database connection and try again.",
@@ -291,6 +296,34 @@ auth.post("/logout", async (c) => {
   const cookie = clearAuthCookie();
   setCookie(c, cookie.name, cookie.value, cookie.attributes);
   return c.redirect("/");
+});
+
+auth.post("/logout-all", async (c) => {
+  const form = await parseForm(c);
+  const csrfValid = validateCsrf(c, form._csrf);
+  if (!csrfValid) return c.text("Invalid CSRF token", 400);
+
+  const authUser = c.get("user") as AuthUser | undefined;
+  if (!authUser) {
+    const cookie = clearAuthCookie();
+    setCookie(c, cookie.name, cookie.value, cookie.attributes);
+    return c.redirect("/auth/login");
+  }
+
+  try {
+    await userRepository.bumpSessionVersion(authUser.id);
+  } catch (err) {
+    const requestId = c.get("requestId");
+    logError("auth.logout_all.failed", err, { requestId });
+    return c.redirect(
+      "/account?error=Could%20not%20sign%20out%20everywhere.",
+      303,
+    );
+  }
+
+  const cookie = clearAuthCookie();
+  setCookie(c, cookie.name, cookie.value, cookie.attributes);
+  return c.redirect("/auth/login");
 });
 
 export const authRoutes = auth;

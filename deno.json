@@ -6,6 +6,8 @@
     "db:seed": "deno run -A --env-file=.env scripts/db/seed_demo.ts",
     "dev:css": "pnpm exec tailwindcss -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css --watch",
     "build:css": "pnpm exec tailwindcss -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css",
+    "test": "deno test -A",
+    "smoke": "deno run -A --env-file=.env scripts/smoke.ts",
     "fmt": "deno fmt",
     "lint": "deno lint",
     "deploy": "deployctl deploy --project=${DEPLOY_PROJECT:-deno-hono-shop} --entrypoint=src/main.tsx"
@@ -22,6 +24,7 @@
     "hono/jsx/jsx-dev-runtime": "https://deno.land/x/hono@v3.12.0/jsx/jsx-runtime.ts",
     "hono/middleware": "https://deno.land/x/hono@v3.12.0/middleware.ts",
     "hono/cookie": "https://deno.land/x/hono@v3.12.0/helper/cookie/index.ts",
+    "std/assert": "https://deno.land/std@0.224.0/assert/mod.ts",
     "@neondatabase/serverless": "npm:@neondatabase/serverless@0.8.1",
     "stripe": "npm:stripe@16.6.0"
   },

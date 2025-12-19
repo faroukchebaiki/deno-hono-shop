@@ -35,6 +35,8 @@ Neon Postgres, and Stripe placeholders. Tooling uses pnpm for Tailwind.
 - `deno task db:init` — apply minimal schema in `scripts/db/schema.sql`
 - `deno task db:seed` — seed demo products
 - `deno task warmup` — simulate deploy warmup locally
+- `deno task smoke` — warmup + seed + cart/checkout dry-run (no Stripe call)
+- `deno task test` — run unit tests
 - `deno task fmt` / `deno task lint`
 
 Or use pnpm scripts directly: `pnpm run tailwind:dev`,

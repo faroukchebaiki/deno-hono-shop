@@ -112,7 +112,7 @@ export const verifyPassword = async (
     {
       name: "PBKDF2",
       hash: "SHA-256",
-      salt,
+      salt: salt.buffer as ArrayBuffer,
       iterations,
     },
     keyMaterial,

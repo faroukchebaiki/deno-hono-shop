@@ -11,6 +11,7 @@ import {
 export type SessionPayload = {
   sub: string;
   role: Role;
+  ver: number;
   iat: number;
   exp: number;
   nonce: string;
@@ -45,12 +46,14 @@ const deserialize = async (
 export const createSessionToken = async (
   userId: string,
   role: Role,
+  sessionVersion = 0,
   ttlSeconds = 60 * 60 * 24 * 7,
 ) => {
   const now = Math.floor(Date.now() / 1000);
   const payload: SessionPayload = {
     sub: userId,
     role,
+    ver: sessionVersion,
     iat: now,
     exp: now + ttlSeconds,
     nonce: randomToken(12),

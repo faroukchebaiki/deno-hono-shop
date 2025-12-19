@@ -1,9 +1,10 @@
 import type { MiddlewareHandler } from "hono";
-import { deleteCookie, getCookie } from "hono/cookie";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Role } from "../types/domain.ts";
 import { getAuthCookieConfig } from "../auth/config.ts";
 import { createSessionToken, verifySessionToken } from "../auth/session.ts";
 import { userRepository } from "../db/repositories.ts";
+import { logError } from "../lib/logger.ts";
 
 export type AuthUser = {
   id: string;
@@ -26,9 +27,20 @@ const cookieAttributes = (secure: boolean, maxAgeSeconds?: number) => ({
   maxAge: maxAgeSeconds,
 });
 
-export const issueAuthCookie = async (userId: string, role: Role) => {
+const rotateWindowSeconds = 60 * 60 * 24;
+
+export const issueAuthCookie = async (
+  userId: string,
+  role: Role,
+  sessionVersion = 0,
+) => {
   const { name, secure, maxAgeSeconds } = getAuthCookieConfig();
-  const value = await createSessionToken(userId, role, maxAgeSeconds);
+  const value = await createSessionToken(
+    userId,
+    role,
+    sessionVersion,
+    maxAgeSeconds,
+  );
   return { name, value, attributes: cookieAttributes(secure, maxAgeSeconds) };
 };
 
@@ -58,6 +70,10 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
       deleteCookie(c, name, { path: "/", secure, sameSite: "Lax" });
       return await next();
     }
+    if (payload.ver !== user.sessionVersion) {
+      deleteCookie(c, name, { path: "/", secure, sameSite: "Lax" });
+      return await next();
+    }
 
     const authUser: AuthUser = {
       id: user.id,
@@ -65,8 +81,21 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
       email: user.email ?? undefined,
     };
     c.set("user", authUser);
+
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp - now < rotateWindowSeconds) {
+      const cookie = await issueAuthCookie(
+        user.id,
+        user.role,
+        user.sessionVersion,
+      );
+      setCookie(c, cookie.name, cookie.value, cookie.attributes);
+    }
   } catch (error) {
-    console.error("Auth middleware failed to resolve session:", error);
+    logError("auth.middleware.failed", error, {
+      requestId: c.get("requestId"),
+      path: c.req.path,
+    });
   }
 
   return await next();

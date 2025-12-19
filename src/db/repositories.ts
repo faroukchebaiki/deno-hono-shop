@@ -8,6 +8,7 @@ type UserRow = {
   role: Role;
   passwordHash: string | null;
   isActive: boolean;
+  sessionVersion: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -131,6 +132,7 @@ export const userRepository = {
         role,
         passwordhash as "passwordHash",
         isactive as "isActive",
+        sessionversion as "sessionVersion",
         createdat as "createdAt",
         updatedat as "updatedAt"
       from "User"
@@ -149,6 +151,7 @@ export const userRepository = {
         role,
         passwordhash as "passwordHash",
         isactive as "isActive",
+        sessionversion as "sessionVersion",
         createdat as "createdAt",
         updatedat as "updatedAt"
       from "User"
@@ -167,6 +170,7 @@ export const userRepository = {
         role,
         passwordhash as "passwordHash",
         isactive as "isActive",
+        sessionversion as "sessionVersion",
         createdat as "createdAt",
         updatedat as "updatedAt"
       from "User"
@@ -185,6 +189,7 @@ export const userRepository = {
         role,
         passwordhash as "passwordHash",
         isactive as "isActive",
+        sessionversion as "sessionVersion",
         createdat as "createdAt",
         updatedat as "updatedAt"
       from "User"
@@ -205,6 +210,7 @@ export const userRepository = {
         role,
         passwordhash as "passwordHash",
         isactive as "isActive",
+        sessionversion as "sessionVersion",
         createdat as "createdAt",
         updatedat as "updatedAt";
     `;
@@ -229,6 +235,7 @@ export const userRepository = {
         role,
         passwordhash as "passwordHash",
         isactive as "isActive",
+        sessionversion as "sessionVersion",
         createdat as "createdAt",
         updatedat as "updatedAt";
     `;
@@ -247,6 +254,7 @@ export const userRepository = {
         role,
         passwordhash as "passwordHash",
         isactive as "isActive",
+        sessionversion as "sessionVersion",
         createdat as "createdAt",
         updatedat as "updatedAt";
     `;
@@ -262,6 +270,7 @@ export const userRepository = {
         role,
         passwordhash as "passwordHash",
         isactive as "isActive",
+        sessionversion as "sessionVersion",
         createdat as "createdAt",
         updatedat as "updatedAt"
       from "User"
@@ -283,6 +292,7 @@ export const userRepository = {
         role,
         passwordhash as "passwordHash",
         isactive as "isActive",
+        sessionversion as "sessionVersion",
         createdat as "createdAt",
         updatedat as "updatedAt";
     `;
@@ -301,6 +311,26 @@ export const userRepository = {
         role,
         passwordhash as "passwordHash",
         isactive as "isActive",
+        sessionversion as "sessionVersion",
+        createdat as "createdAt",
+        updatedat as "updatedAt";
+    `;
+    return rows[0];
+  },
+  bumpSessionVersion: async (id: string) => {
+    const sql = await getDb();
+    const rows = await sql<UserRow>`
+      update "User"
+      set sessionversion = sessionversion + 1, updatedat = now()
+      where id = ${id}
+      returning
+        id,
+        email,
+        name,
+        role,
+        passwordhash as "passwordHash",
+        isactive as "isActive",
+        sessionversion as "sessionVersion",
         createdat as "createdAt",
         updatedat as "updatedAt";
     `;

@@ -26,6 +26,13 @@ import {
 } from "./lib/validation.ts";
 import { hashPassword, verifyPassword } from "./lib/crypto.ts";
 import { ensureCsrfToken, validateCsrf } from "./auth/csrf.ts";
+import { logError, logInfo, logWarn } from "./lib/logger.ts";
+import {
+  createInMemoryMetrics,
+  getMetricsSnapshot,
+  recordRequest,
+  setMetricsSink,
+} from "./lib/metrics.ts";
 import Stripe from "stripe";
 
 const startTime = Date.now();
@@ -34,10 +41,8 @@ const app = new Hono();
 const isProdLike = server.environment === "production" ||
   Boolean(Deno.env.get("DENO_DEPLOYMENT_ID"));
 const cartCookieName = "cart_session";
-const metrics = {
-  requests: 0,
-  totalDurationMs: 0,
-};
+const metricsSink = createInMemoryMetrics();
+setMetricsSink(metricsSink);
 const rateLimitBuckets = new Map<string, { resetAt: number; count: number }>();
 
 type Product = {
@@ -182,13 +187,26 @@ app.use("*", async (c, next) => {
 
 app.use("*", async (c, next) => {
   const path = c.req.path;
-  if (rateLimitPaths.some((p) => path.startsWith(p))) {
-    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
-      c.req.header("cf-connecting-ip") ||
-      "unknown";
-    const key = `${ip}:${path}`;
-    const result = rateLimit(key, 30, 60_000);
+  const rule = rateLimitRules.find(
+    (entry) =>
+      path.startsWith(entry.prefix) &&
+      (!entry.method || entry.method === c.req.method),
+  );
+  if (rule) {
+    const ip = getClientIp(c);
+    const key = `${ip}:${rule.prefix}:${rule.method ?? "ANY"}`;
+    const result = rateLimit(key, rule.limit, rule.windowMs);
     if (!result.allowed) {
+      c.header(
+        "Retry-After",
+        String(Math.ceil(result.retryAfterMs / 1000)),
+      );
+      logWarn("rate_limit.exceeded", {
+        requestId: c.get("requestId"),
+        path,
+        method: c.req.method,
+        ip,
+      });
       return c.text("Too many requests. Try again shortly.", 429);
     }
   }
@@ -199,16 +217,20 @@ app.use("*", async (c, next) => {
   const start = performance.now();
   const requestId = crypto.randomUUID();
   c.set("requestId", requestId);
-  await next();
-  const duration = performance.now() - start;
-  metrics.requests += 1;
-  metrics.totalDurationMs += duration;
-  const status = c.res.status;
-  const method = c.req.method;
-  const path = c.req.path;
-  console.log(
-    `[${requestId}] ${method} ${path} -> ${status} (${duration.toFixed(1)}ms)`,
-  );
+  try {
+    await next();
+  } finally {
+    const duration = performance.now() - start;
+    const status = c.res.status;
+    recordRequest(duration, status);
+    logInfo("request.completed", {
+      requestId,
+      method: c.req.method,
+      path: c.req.path,
+      status,
+      durationMs: Number(duration.toFixed(1)),
+    });
+  }
 });
 
 app.use("*", authMiddleware);
@@ -219,7 +241,13 @@ const formatPrice = (value: number) =>
     value,
   );
 
-const ProductCard = ({ product }: { product: Product }) => (
+const ProductCard = (
+  { product, csrfToken, returnTo }: {
+    product: Product;
+    csrfToken: string;
+    returnTo: string;
+  },
+) => (
   <article class="card h-full border border-base-300 bg-base-100 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg">
     <figure class="relative aspect-[4/3] overflow-hidden bg-base-200">
       {product.badge && (
@@ -270,7 +298,15 @@ const ProductCard = ({ product }: { product: Product }) => (
         </div>
       )}
       <div class="card-actions justify-between pt-2">
-        <button type="button" class="btn btn-sm btn-primary">Add to bag</button>
+        <form method="POST" action="/cart/add">
+          <input type="hidden" name="_csrf" value={csrfToken} />
+          <input type="hidden" name="productId" value={product.id} />
+          <input type="hidden" name="quantity" value="1" />
+          <input type="hidden" name="returnTo" value={returnTo} />
+          <button type="submit" class="btn btn-sm btn-primary">
+            Add to bag
+          </button>
+        </form>
         <a href={`/products/${product.id}`} class="btn btn-sm btn-ghost">
           View details
         </a>
@@ -279,7 +315,13 @@ const ProductCard = ({ product }: { product: Product }) => (
   </article>
 );
 
-const ProductHighlight = ({ product }: { product: Product }) => (
+const ProductHighlight = (
+  { product, csrfToken, returnTo }: {
+    product: Product;
+    csrfToken: string;
+    returnTo: string;
+  },
+) => (
   <section class="grid gap-6 overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm lg:grid-cols-2">
     <div class="relative">
       {product.badge && (
@@ -339,7 +381,13 @@ const ProductHighlight = ({ product }: { product: Product }) => (
           <p class="text-sm text-base-content/70">Free shipping over $75</p>
         </div>
         <div class="flex gap-2">
-          <button type="button" class="btn btn-primary">Add to bag</button>
+          <form method="POST" action="/cart/add">
+            <input type="hidden" name="_csrf" value={csrfToken} />
+            <input type="hidden" name="productId" value={product.id} />
+            <input type="hidden" name="quantity" value="1" />
+            <input type="hidden" name="returnTo" value={returnTo} />
+            <button type="submit" class="btn btn-primary">Add to bag</button>
+          </form>
           <a href={`/products/${product.id}`} class="btn btn-ghost">
             View full details
           </a>
@@ -498,8 +546,9 @@ const PageShell = ({ children }: { children: Child }) => (
   </div>
 );
 
-const ShopHomePage = () => {
+const ShopHomePage = ({ csrfToken }: { csrfToken: string }) => {
   const [featured, ...rest] = products;
+  const returnTo = "/";
 
   return (
     <PageShell>
@@ -517,7 +566,11 @@ const ShopHomePage = () => {
           </div>
           <CategoryPills />
         </div>
-        <ProductHighlight product={featured} />
+        <ProductHighlight
+          product={featured}
+          csrfToken={csrfToken}
+          returnTo={returnTo}
+        />
         <section class="space-y-4">
           <div class="flex items-center justify-between">
             <div>
@@ -532,7 +585,12 @@ const ShopHomePage = () => {
           </div>
           <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {rest.map((product) => (
-              <ProductCard product={product} key={product.id} />
+              <ProductCard
+                product={product}
+                csrfToken={csrfToken}
+                returnTo={returnTo}
+                key={product.id}
+              />
             ))}
           </div>
         </section>
@@ -635,25 +693,47 @@ const cspDirectives = [
   "font-src 'self' data:",
   "connect-src 'self' https://api.stripe.com",
   "frame-src https://js.stripe.com",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
   "form-action 'self'",
   "base-uri 'self'",
 ].join("; ");
+
+type RateLimitRule = {
+  prefix: string;
+  limit: number;
+  windowMs: number;
+  method?: string;
+};
 
 const rateLimit = (key: string, limit: number, windowMs: number) => {
   const now = Date.now();
   const bucket = rateLimitBuckets.get(key);
   if (!bucket || bucket.resetAt < now) {
     rateLimitBuckets.set(key, { resetAt: now + windowMs, count: 1 });
-    return { allowed: true, remaining: limit - 1 };
+    return { allowed: true, remaining: limit - 1, retryAfterMs: windowMs };
   }
   if (bucket.count >= limit) {
-    return { allowed: false, retryInMs: bucket.resetAt - now };
+    return {
+      allowed: false,
+      retryAfterMs: Math.max(0, bucket.resetAt - now),
+    };
   }
   bucket.count += 1;
-  return { allowed: true, remaining: limit - bucket.count };
+  return { allowed: true, remaining: limit - bucket.count, retryAfterMs: 0 };
 };
 
-const rateLimitPaths = ["/auth/login", "/auth/register", "/webhooks/stripe"];
+const rateLimitRules: RateLimitRule[] = [
+  { prefix: "/auth/login", limit: 10, windowMs: 60_000, method: "POST" },
+  { prefix: "/auth/register", limit: 6, windowMs: 60_000, method: "POST" },
+  { prefix: "/webhooks/stripe", limit: 120, windowMs: 60_000, method: "POST" },
+];
+
+const getClientIp = (c: Context) =>
+  c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
+  c.req.header("cf-connecting-ip") ||
+  c.req.header("x-real-ip") ||
+  "unknown";
 
 const ensureCartSession = (c: Context) => {
   let sessionId = getCookie(c, cartCookieName);
@@ -729,7 +809,13 @@ const Breadcrumbs = (
   </div>
 );
 
-const DbProductCard = ({ product }: { product: DbProduct }) => (
+const DbProductCard = (
+  { product, csrfToken, returnTo }: {
+    product: DbProduct;
+    csrfToken: string;
+    returnTo: string;
+  },
+) => (
   <article class="card h-full border border-base-300 bg-base-100 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg">
     <figure class="relative aspect-[4/3] overflow-hidden bg-base-200">
       <img
@@ -759,9 +845,15 @@ const DbProductCard = ({ product }: { product: DbProduct }) => (
         {product.description ?? "—"}
       </p>
       <div class="card-actions justify-between pt-2">
-        <button type="button" class="btn btn-sm btn-primary">
-          Add to cart
-        </button>
+        <form method="POST" action="/cart/add">
+          <input type="hidden" name="_csrf" value={csrfToken} />
+          <input type="hidden" name="productId" value={product.id} />
+          <input type="hidden" name="quantity" value="1" />
+          <input type="hidden" name="returnTo" value={returnTo} />
+          <button type="submit" class="btn btn-sm btn-primary">
+            Add to cart
+          </button>
+        </form>
         <a href={`/products/${product.slug}`} class="btn btn-sm btn-ghost">
           View details
         </a>
@@ -781,6 +873,8 @@ type ProductsPageProps = {
   dbError: boolean;
   prevHref: string | null;
   nextHref: string | null;
+  csrfToken: string;
+  returnTo: string;
 };
 
 const ProductsPage = ({
@@ -794,6 +888,8 @@ const ProductsPage = ({
   dbError,
   prevHref,
   nextHref,
+  csrfToken,
+  returnTo,
 }: ProductsPageProps) => (
   <PageShell>
     <main class="space-y-6">
@@ -866,7 +962,12 @@ const ProductsPage = ({
         : (
           <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {products.map((product) => (
-              <DbProductCard product={product} key={product.id} />
+              <DbProductCard
+                product={product}
+                csrfToken={csrfToken}
+                returnTo={returnTo}
+                key={product.id}
+              />
             ))}
           </div>
         )}
@@ -891,7 +992,13 @@ const ProductsPage = ({
   </PageShell>
 );
 
-const ProductDetailPage = ({ product }: { product: DbProduct }) => (
+const ProductDetailPage = (
+  { product, csrfToken, returnTo }: {
+    product: DbProduct;
+    csrfToken: string;
+    returnTo: string;
+  },
+) => (
   <PageShell>
     <main class="space-y-8">
       <Breadcrumbs
@@ -924,7 +1031,15 @@ const ProductDetailPage = ({ product }: { product: DbProduct }) => (
             {product.description ?? "—"}
           </p>
           <div class="flex flex-wrap gap-3">
-            <button type="button" class="btn btn-primary">Add to cart</button>
+            <form method="POST" action="/cart/add">
+              <input type="hidden" name="_csrf" value={csrfToken} />
+              <input type="hidden" name="productId" value={product.id} />
+              <input type="hidden" name="quantity" value="1" />
+              <input type="hidden" name="returnTo" value={returnTo} />
+              <button type="submit" class="btn btn-primary">
+                Add to cart
+              </button>
+            </form>
             <a href="/products" class="btn btn-outline">Back to shop</a>
           </div>
         </div>
@@ -958,11 +1073,33 @@ const NotFoundPage = () => (
   </PageShell>
 );
 
+const ServerErrorPage = ({ requestId }: { requestId?: string }) => (
+  <PageShell>
+    <main class="mx-auto max-w-3xl pt-12 text-center space-y-4">
+      <h1 class="text-3xl font-bold">Something went wrong</h1>
+      <p class="text-base-content/70">
+        We couldn&apos;t complete your request. Please refresh or try again in a
+        moment.
+      </p>
+      {requestId && (
+        <p class="text-sm text-base-content/60">
+          Request ID: <span class="font-mono">{requestId}</span>
+        </p>
+      )}
+      <div class="flex justify-center gap-2">
+        <a href="/" class="btn btn-primary btn-sm">Back home</a>
+        <a href="/contact" class="btn btn-ghost btn-sm">Contact support</a>
+      </div>
+    </main>
+  </PageShell>
+);
+
 type CartPageProps = {
   items: CartItem[];
   subtotalCents: number;
   currency: string;
   stripeEnabled: boolean;
+  csrfToken: string;
   message?: string;
 };
 
@@ -971,6 +1108,7 @@ const CartPage = ({
   subtotalCents,
   currency,
   stripeEnabled,
+  csrfToken,
   message,
 }: CartPageProps) => (
   <PageShell>
@@ -1051,6 +1189,7 @@ const CartPage = ({
                         method="POST"
                         action="/cart/update"
                       >
+                        <input type="hidden" name="_csrf" value={csrfToken} />
                         <input type="hidden" name="itemId" value={item.id} />
                         <input
                           type="number"
@@ -1072,6 +1211,7 @@ const CartPage = ({
                 </div>
               ))}
               <form method="POST" action="/cart/clear">
+                <input type="hidden" name="_csrf" value={csrfToken} />
                 <button type="submit" class="btn btn-sm btn-ghost">
                   Clear cart
                 </button>
@@ -1100,6 +1240,7 @@ const CartPage = ({
                 </div>
               )}
               <form method="POST" action="/checkout" class="space-y-2">
+                <input type="hidden" name="_csrf" value={csrfToken} />
                 <button
                   type="submit"
                   class={`btn btn-primary w-full ${
@@ -1303,6 +1444,21 @@ const AccountPage = ({
                 Update password
               </button>
             </form>
+            <div class="divider my-1" />
+            <div class="flex flex-wrap items-center gap-2">
+              <form method="POST" action="/auth/logout">
+                <input type="hidden" name="_csrf" value={csrfToken} />
+                <button type="submit" class="btn btn-ghost btn-sm">
+                  Sign out
+                </button>
+              </form>
+              <form method="POST" action="/auth/logout-all">
+                <input type="hidden" name="_csrf" value={csrfToken} />
+                <button type="submit" class="btn btn-outline btn-sm">
+                  Sign out everywhere
+                </button>
+              </form>
+            </div>
           </div>
         </section>
 
@@ -2550,18 +2706,21 @@ const filterDemoCatalog = (options: { category: string; query: string }) => {
   });
 };
 
-app.get("/", (c: Context) =>
-  c.render(<ShopHomePage />, {
+app.get("/", (c: Context) => {
+  const csrfToken = ensureCsrfToken(c);
+  return c.render(<ShopHomePage csrfToken={csrfToken} />, {
     title: "Hono Shop",
     description:
       "Modern essentials for work, travel, and home — built with Deno + Hono.",
-  }));
+  });
+});
 
 app.get("/products", async (c: Context) => {
   const selectedCategory = (c.req.query("category") ?? "").trim();
   const query = (c.req.query("q") ?? "").trim();
   const pageSize = 12;
   let page = parsePositiveInt(c.req.query("page"), 1);
+  const csrfToken = ensureCsrfToken(c);
 
   let dbError = false;
   let products: DbProduct[] = [];
@@ -2603,8 +2762,15 @@ app.get("/products", async (c: Context) => {
     categories = categories.length
       ? categories
       : [...new Set(filtered.map((p) => p.category).filter(Boolean))].sort();
-    console.error("Failed to load products from database:", error);
+    logError("products.list.failed", error, {
+      requestId: c.get("requestId"),
+      category: selectedCategory || null,
+      query: query || null,
+    });
   }
+
+  const requestUrl = new URL(c.req.url);
+  const returnTo = `${requestUrl.pathname}${requestUrl.search}`;
 
   const prevHref = page > 1
     ? buildProductsHref({ page: page - 1, category: selectedCategory, query })
@@ -2625,6 +2791,8 @@ app.get("/products", async (c: Context) => {
       dbError={dbError}
       prevHref={prevHref}
       nextHref={nextHref}
+      csrfToken={csrfToken}
+      returnTo={returnTo}
     />,
     {
       title: "Shop · Hono Shop",
@@ -2636,25 +2804,46 @@ app.get("/products", async (c: Context) => {
 
 app.get("/products/:slug", async (c: Context) => {
   const slug = c.req.param("slug");
+  const csrfToken = ensureCsrfToken(c);
+  const returnTo = c.req.path;
 
   try {
     const product = await productRepository.findBySlug(slug);
     if (product) {
-      return c.render(<ProductDetailPage product={product} />, {
-        title: `${product.name} · Hono Shop`,
-        description: product.description ?? `Buy ${product.name} on Hono Shop.`,
-      });
+      return c.render(
+        <ProductDetailPage
+          product={product}
+          csrfToken={csrfToken}
+          returnTo={returnTo}
+        />,
+        {
+          title: `${product.name} · Hono Shop`,
+          description: product.description ??
+            `Buy ${product.name} on Hono Shop.`,
+        },
+      );
     }
   } catch (error) {
-    console.error("Failed to load product detail from database:", error);
+    logError("products.detail.failed", error, {
+      requestId: c.get("requestId"),
+      slug,
+    });
   }
 
   const fallback = demoCatalog.find((product) => product.slug === slug);
   if (fallback) {
-    return c.render(<ProductDetailPage product={fallback} />, {
-      title: `${fallback.name} · Hono Shop`,
-      description: fallback.description ?? `Buy ${fallback.name} on Hono Shop.`,
-    });
+    return c.render(
+      <ProductDetailPage
+        product={fallback}
+        csrfToken={csrfToken}
+        returnTo={returnTo}
+      />,
+      {
+        title: `${fallback.name} · Hono Shop`,
+        description: fallback.description ??
+          `Buy ${fallback.name} on Hono Shop.`,
+      },
+    );
   }
 
   return c.notFound();
@@ -2667,11 +2856,22 @@ const parseQuantity = (value: unknown, fallback = 1) => {
   return floored > 0 ? floored : fallback;
 };
 
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(value);
+
+const safeReturnPath = (value: string | undefined, fallback: string) => {
+  if (!value) return fallback;
+  if (!value.startsWith("/") || value.startsWith("//")) return fallback;
+  return value;
+};
+
 app.get("/cart", async (c: Context) => {
   let items: CartItem[] = [];
   let subtotalCents = 0;
   let currency = "USD";
   let message = c.req.query("msg") ?? undefined;
+  const csrfToken = ensureCsrfToken(c);
 
   try {
     const cart = await loadCart(c);
@@ -2679,7 +2879,9 @@ app.get("/cart", async (c: Context) => {
     subtotalCents = cart.subtotalCents;
     currency = cart.currency;
   } catch (error) {
-    console.error("Failed to load cart:", error);
+    logError("cart.load.failed", error, {
+      requestId: c.get("requestId"),
+    });
     message = "Could not load cart. Check database connection.";
   }
 
@@ -2689,6 +2891,7 @@ app.get("/cart", async (c: Context) => {
       subtotalCents={subtotalCents}
       currency={currency}
       stripeEnabled={stripeEnabled}
+      csrfToken={csrfToken}
       message={message}
     />,
     { title: "Cart · Hono Shop" },
@@ -2697,13 +2900,20 @@ app.get("/cart", async (c: Context) => {
 
 app.post("/cart/add", async (c: Context) => {
   const form = await c.req.parseBody() as Record<string, string>;
-  const productId = form.productId?.toString();
+  if (!validateCsrf(c, form._csrf)) {
+    return c.redirect("/cart?msg=Session%20expired.", 303);
+  }
+  const productId = form.productId?.toString().trim();
   const quantity = parseQuantity(form.quantity, 1);
   if (!productId) return c.text("Missing product", 400);
 
   try {
-    const product = await productRepository.findById(productId);
-    if (!product) return c.text("Product not found", 404);
+    const product = (isUuid(productId)
+      ? await productRepository.findById(productId)
+      : null) ?? await productRepository.findBySlug(productId);
+    if (!product) {
+      return c.text("Product not found", 404);
+    }
 
     const { cartId } = await loadCart(c);
     await cartRepository.addItem(
@@ -2717,16 +2927,25 @@ app.post("/cart/add", async (c: Context) => {
       quantity,
     );
   } catch (error) {
-    console.error("Failed to add to cart:", error);
+    logError("cart.add.failed", error, {
+      requestId: c.get("requestId"),
+      productId,
+    });
     return c.text("Could not add to cart. Check database connection.", 503);
   }
 
-  const returnTo = form.returnTo || c.req.header("referer") || "/cart";
-  return c.redirect(returnTo.toString(), 303);
+  const returnTo = safeReturnPath(
+    form.returnTo?.toString(),
+    "/cart",
+  );
+  return c.redirect(returnTo, 303);
 });
 
 app.post("/cart/update", async (c: Context) => {
   const form = await c.req.parseBody() as Record<string, string>;
+  if (!validateCsrf(c, form._csrf)) {
+    return c.redirect("/cart?msg=Session%20expired.", 303);
+  }
   const itemId = form.itemId?.toString();
   const quantity = parseQuantity(form.quantity, 0);
   if (!itemId) return c.text("Missing cart item", 400);
@@ -2735,18 +2954,27 @@ app.post("/cart/update", async (c: Context) => {
     const { cartId } = await loadCart(c);
     await cartRepository.updateQuantity(cartId, itemId, quantity);
   } catch (error) {
-    console.error("Failed to update cart:", error);
+    logError("cart.update.failed", error, {
+      requestId: c.get("requestId"),
+      itemId,
+    });
     return c.text("Could not update cart. Check database connection.", 503);
   }
   return c.redirect("/cart", 303);
 });
 
 app.post("/cart/clear", async (c: Context) => {
+  const form = await c.req.parseBody() as Record<string, string>;
+  if (!validateCsrf(c, form._csrf)) {
+    return c.redirect("/cart?msg=Session%20expired.", 303);
+  }
   try {
     const { cartId } = await loadCart(c);
     await cartRepository.clear(cartId);
   } catch (error) {
-    console.error("Failed to clear cart:", error);
+    logError("cart.clear.failed", error, {
+      requestId: c.get("requestId"),
+    });
     return c.text("Could not clear cart. Check database connection.", 503);
   }
   return c.redirect("/cart", 303);
@@ -2758,6 +2986,11 @@ app.post("/checkout", async (c: Context) => {
       "Stripe is not configured. Add STRIPE keys to continue.",
       503,
     );
+  }
+
+  const form = await c.req.parseBody() as Record<string, string>;
+  if (!validateCsrf(c, form._csrf)) {
+    return c.redirect("/cart?msg=Session%20expired.", 303);
   }
 
   let items: CartItem[] = [];
@@ -2773,7 +3006,9 @@ app.post("/checkout", async (c: Context) => {
     currency = cart.currency;
     cartId = cart.cartId;
   } catch (error) {
-    console.error("Failed to load cart for checkout:", error);
+    logError("checkout.cart_load_failed", error, {
+      requestId: c.get("requestId"),
+    });
     return c.text("Could not load cart. Check database connection.", 503);
   }
 
@@ -2894,11 +3129,18 @@ app.post("/webhooks/stripe", async (c: Context) => {
       stripeConfig.webhookSecret,
     );
   } catch (err) {
-    console.error("Stripe webhook signature verification failed:", err);
+    logError("stripe.webhook.signature_failed", err, {
+      requestId: c.get("requestId"),
+    });
     return c.text("Invalid signature", 400);
   }
 
   try {
+    logInfo("stripe.webhook.received", {
+      requestId: c.get("requestId"),
+      type: event.type,
+      id: event.id,
+    });
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
@@ -2917,6 +3159,11 @@ app.post("/webhooks/stripe", async (c: Context) => {
           : null;
 
         if (order) {
+          logInfo("stripe.webhook.checkout_completed", {
+            requestId: c.get("requestId"),
+            orderId: order.id,
+            sessionId,
+          });
           if (order.status !== OrderStatus.PAID) {
             await orderRepository.updateStripeState(order.id, {
               status: OrderStatus.PAID,
@@ -2947,6 +3194,11 @@ app.post("/webhooks/stripe", async (c: Context) => {
         if (orderId) {
           const order = await orderRepository.findById(orderId);
           if (order && order.status !== OrderStatus.CANCELLED) {
+            logInfo("stripe.webhook.payment_failed", {
+              requestId: c.get("requestId"),
+              orderId,
+              paymentIntentId: pi.id,
+            });
             await orderRepository.updateStripeState(orderId, {
               status: OrderStatus.CANCELLED,
               stripePaymentIntentId: pi.id,
@@ -2971,7 +3223,9 @@ app.post("/webhooks/stripe", async (c: Context) => {
         break;
     }
   } catch (err) {
-    console.error("Error handling Stripe webhook:", err);
+    logError("stripe.webhook.handler_failed", err, {
+      requestId: c.get("requestId"),
+    });
     return c.text("Webhook handling failed", 500);
   }
 
@@ -3200,7 +3454,9 @@ app.post("/account/profile", requireUser(), async (c: Context) => {
     });
     return c.redirect("/account?notice=Profile%20updated.", 303);
   } catch (error) {
-    console.error("Profile update failed:", error);
+    logError("account.profile.update_failed", error, {
+      requestId: c.get("requestId"),
+    });
     return c.redirect(
       "/account?error=Could%20not%20update%20profile.",
       303,
@@ -3256,7 +3512,9 @@ app.post("/account/password", requireUser(), async (c: Context) => {
     await userRepository.updatePassword(authUser.id, passwordHash);
     return c.redirect("/account?notice=Password%20updated.", 303);
   } catch (error) {
-    console.error("Password update failed:", error);
+    logError("account.password.update_failed", error, {
+      requestId: c.get("requestId"),
+    });
     return c.redirect(
       "/account?error=Could%20not%20update%20password.",
       303,
@@ -3322,7 +3580,9 @@ app.post("/account/addresses", requireUser(), async (c: Context) => {
     await addressRepository.create(authUser.id, parsed.value);
     return c.redirect("/account?notice=Address%20saved.", 303);
   } catch (error) {
-    console.error("Address create failed:", error);
+    logError("account.address.create_failed", error, {
+      requestId: c.get("requestId"),
+    });
     return c.render(
       <AddressFormPage
         title="Add address"
@@ -3367,7 +3627,9 @@ app.post("/account/addresses/:id", requireUser(), async (c: Context) => {
     if (!updated) return c.notFound();
     return c.redirect("/account?notice=Address%20updated.", 303);
   } catch (error) {
-    console.error("Address update failed:", error);
+    logError("account.address.update_failed", error, {
+      requestId: c.get("requestId"),
+    });
     return c.render(
       <AddressFormPage
         title="Edit address"
@@ -3391,7 +3653,9 @@ app.post("/account/addresses/:id/delete", requireUser(), async (c: Context) => {
     await addressRepository.remove(authUser.id, c.req.param("id"));
     return c.redirect("/account?notice=Address%20removed.", 303);
   } catch (error) {
-    console.error("Address delete failed:", error);
+    logError("account.address.delete_failed", error, {
+      requestId: c.get("requestId"),
+    });
     return c.redirect("/account?error=Could%20not%20remove%20address.", 303);
   }
 });
@@ -3413,7 +3677,9 @@ app.post(
       if (!updated) return c.notFound();
       return c.redirect("/account?notice=Default%20updated.", 303);
     } catch (error) {
-      console.error("Set default address failed:", error);
+      logError("account.address.default_failed", error, {
+        requestId: c.get("requestId"),
+      });
       return c.redirect(
         "/account?error=Could%20not%20update%20default.",
         303,
@@ -3686,7 +3952,9 @@ app.post("/admin/products", requireRole([Role.ADMIN]), async (c: Context) => {
     await productRepository.create(parsed.value);
     return c.redirect("/admin/products?notice=Product%20created.", 303);
   } catch (error) {
-    console.error("Create product failed:", error);
+    logError("admin.product.create_failed", error, {
+      requestId: c.get("requestId"),
+    });
     return c.render(
       <AdminProductFormPage
         title="New product"
@@ -3755,7 +4023,10 @@ app.post(
       if (!updated) return c.notFound();
       return c.redirect("/admin/products?notice=Product%20updated.", 303);
     } catch (error) {
-      console.error("Update product failed:", error);
+      logError("admin.product.update_failed", error, {
+        requestId: c.get("requestId"),
+        productId: c.req.param("id"),
+      });
       return c.render(
         <AdminProductFormPage
           title="Edit product"
@@ -3788,7 +4059,10 @@ app.post(
         303,
       );
     } catch (error) {
-      console.error("Update product status failed:", error);
+      logError("admin.product.status_failed", error, {
+        requestId: c.get("requestId"),
+        productId: c.req.param("id"),
+      });
       return c.redirect(
         "/admin/products?notice=Could%20not%20update%20product.",
         303,
@@ -3894,11 +4168,15 @@ app.get("/health", async (c: Context) => {
         const rows = await sql<{ ok: number }>`select 1 as ok;`;
         return rows[0]?.ok === 1;
       } catch (error) {
-        console.error("Health DB check failed:", error);
+        logError("health.db_check_failed", error, {
+          requestId: c.get("requestId"),
+        });
         return false;
       }
     })()
     : undefined;
+
+  const snapshot = getMetricsSnapshot();
 
   return c.json({
     status: "ok",
@@ -3907,12 +4185,28 @@ app.get("/health", async (c: Context) => {
     timestamp: new Date().toISOString(),
     db: dbCheck,
     metrics: {
-      requests: metrics.requests,
-      avgDurationMs: metrics.requests
-        ? Number((metrics.totalDurationMs / metrics.requests).toFixed(2))
-        : 0,
+      requests: snapshot.requests,
+      avgDurationMs: snapshot.avgDurationMs,
+      byStatus: snapshot.byStatus,
     },
   });
+});
+
+app.onError((error, c: Context) => {
+  const requestId = c.get("requestId");
+  logError("request.error", error, {
+    requestId,
+    path: c.req.path,
+    method: c.req.method,
+  });
+  c.status(500);
+  const accept = c.req.header("accept") ?? "";
+  if (accept.includes("text/html")) {
+    return c.render(<ServerErrorPage requestId={requestId} />, {
+      title: "Server error · Hono Shop",
+    });
+  }
+  return c.text("Internal Server Error", 500);
 });
 
 app.notFound((c: Context) => {
@@ -3929,6 +4223,6 @@ export default app;
 export const fetch = (request: Request) => app.fetch(request);
 
 if (!isDenoDeploy && import.meta.main) {
-  console.log(`Listening on http://localhost:${port}`);
+  logInfo("server.listen", { port, url: `http://localhost:${port}` });
   Deno.serve({ port }, app.fetch);
 }

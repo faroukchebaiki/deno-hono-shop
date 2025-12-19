@@ -18,6 +18,12 @@ Database schema:
   auth/catalog routes.
 - Locally: run `deno task db:init` (and optionally `deno task db:seed`).
 
+Local verification (optional):
+
+- `deno task warmup` runs SSR smoke checks.
+- `deno task smoke` runs warmup, seeds demo data, and performs a checkout
+  dry-run without calling Stripe.
+
 Environment variables required at runtime:
 
 - `APP_ENV` (e.g., `production`)

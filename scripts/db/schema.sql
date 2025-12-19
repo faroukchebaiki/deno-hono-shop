@@ -9,6 +9,7 @@ create table if not exists "User" (
   name text,
   role text not null default 'CUSTOMER',
   passwordhash text,
+  sessionversion integer not null default 0,
   isactive boolean not null default true,
   createdat timestamptz not null default now(),
   updatedat timestamptz not null default now()
@@ -131,3 +132,6 @@ alter table "Order"
 alter table "Product"
   add column if not exists sku text,
   add column if not exists stock integer;
+
+alter table "User"
+  add column if not exists sessionversion integer;
