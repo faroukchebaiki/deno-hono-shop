@@ -1,118 +1,71 @@
-# Project Plan — Deno Hono Commerce
+# Project Plan — Deno Hono Commerce (Refreshed)
 
-Intent: ship a production-ready, SSR-only e-commerce experience on Deno Deploy
-using Hono, Tailwind, daisyUI, Neon/Postgres, signed-cookie auth, and Stripe
-Checkout. Keep it minimal, edge-friendly, and easy to extend.
+Current state (done):
 
-## Stage 0 — Foundations (✅ done)
+- SSR public pages (home, products list/detail, about/contact/terms/privacy).
+- Neon/Postgres with products/orders/users; seed + demo users/products.
+- Auth (stateless cookies), CSRF, rate limiting, security headers/CSP.
+- Cart + Stripe Checkout + webhook, order creation/updates.
+- Account dashboard with orders; admin/staff orders table + status updates;
+  admin products list (read-only).
+- Warmup script, health with metrics/optional DB check, basic logging.
 
-- [x] Ensure tasks: `deno task dev`, `deno task dev:css`, `deno task build:css`,
-      `deno task db:init`, `deno task db:seed`, `deno task warmup`,
-      `deno task lint`, `deno task fmt`.
-- [x] Env validation: fail fast on missing `DATABASE_URL`, `COOKIE_SECRET`; keep
-      Stripe optional until payments.
-- [x] Base layout: SSR renderer, static middleware, hero/home scaffold, shared
-      styles.
-- [x] Repo hygiene: `.env.example`, `.gitignore`, deploy include list,
-      README/DEPLOYMENT notes.
+## Stage 0 — Baseline & Quality (✅ mostly done)
 
-## Stage 1 — Domain & Schema (✅ done)
+- [x] Tasks: dev, css, db:init/seed, warmup, lint, fmt; deploy settings
+      documented.
+- [x] Env: requires DATABASE_URL, COOKIE_SECRET, Stripe keys.
+- [ ] Add minimal input validation helpers (forms/params) and reuse across
+      routes.
 
-- [x] Model in Postgres: User, Product, Order (keep it minimal; add tables as
-      features land).
-- [x] Add enums: OrderStatus (pending, paid, shipped, refunded, cancelled), Role
-      (customer, staff, admin), plus CartStatus/PaymentStatus.
-- [x] Add DB init/seed scripts for local dev.
-- [x] Add minimal repository helpers (pure functions) for products and orders;
-      keep DB access thin.
+## Stage 1 — Customer Profile & Addresses
 
-## Stage 2 — Auth (stateless cookies) (✅ done)
+- Profile: update name/email/password (with current-password check).
+- Address book: add/edit/delete shipping & billing addresses; mark defaults.
+- Use validation helpers; show success/error states; SSR forms only.
 
-- [x] Define cookie payload: `sub`, `role`, `exp`, `iat`, `nonce`; HMAC-sign
-      with `COOKIE_SECRET`.
-- [x] Middleware: verify cookie, hydrate user from DB, attach
-      `c.set("user", …)`, clear invalid tokens.
-- [x] Routes: login/register/logout SSR forms, password hashing (PBKDF2),
-      invalid states handled gracefully.
-- [x] Guards: `requireUser`, `requireRole` protecting `/account` and `/admin`
-      placeholders.
-- [x] CSRF: double-submit token cookie + hidden field; cookies `HttpOnly`,
-      `SameSite=Lax`, `Secure` in prod-ish.
+## Stage 2 — Catalog Admin CRUD
 
-## Stage 3 — Catalog & Public Pages (✅ done)
+- Admin product create/update/archive; manage price, category, images array.
+- Optional inventory fields (stock, SKU); simple image URL inputs.
+- Admin product detail/edit forms; server-side validation; flash messages.
 
-- [x] Public routes: Home, Products list (paginate + filter by category),
-      Product detail, About, Contact, Terms, Privacy.
-- [x] Components: product cards, filters, pagination, breadcrumbs, header/footer
-      partials.
-- [x] Data: fetch from Postgres via Neon; add basic seed images/data; format
-      money centrally.
-- [x] SEO: per-page title/description, basic Open Graph/Twitter tags.
+## Stage 3 — Orders & Fulfillment Details
 
-## Stage 4 — Cart & Checkout (Stripe) (✅ done)
+- Persist line items for orders (reflect cart at checkout time).
+- Order detail (admin/customer) shows items, quantities, totals, status history.
+- Add shipped/refunded transitions with timestamps/actor logging (audit-lite).
 
-- [x] Cart stored server-side (Neon) keyed to user or signed cart cookie for
-      guests; merges user id when signed in.
-- [x] Cart pages: view/edit quantities, remove lines, show totals, shipping/tax
-      placeholders.
-- [x] Checkout flow: create Order (pending) + line items from cart; create
-      Stripe Checkout Session server-side; store `stripeSessionId`/payment
-      metadata; redirect to Stripe-hosted checkout; success/cancel pages.
-- [x] Webhooks: verify signature, update order status `pending -> paid` or
-      `cancelled` on failure, capture payment intent id, clear cart on success.
+## Stage 4 — User Management & Audit Log
 
-## Stage 5 — Account Area (✅ done)
+- Admin: list users, change roles (customer/staff/admin), activate/deactivate.
+- Audit log table capturing actor, action, target, timestamp; render admin view.
 
-- [x] Dashboard summary (recent orders, profile snippet).
-- [x] Order history list + order detail (amount, status, timestamp).
-- [ ] Profile management: name, email, password change (requires current
-      password).
-- [ ] Address book: shipping/billing addresses CRUD.
-- [x] Guards and SSR-only forms with POST/redirect-after-post pattern.
+## Stage 5 — Observability Upgrades
 
-## Stage 6 — Admin & Staff
+- Structured logging helper with request id; log auth errors, webhook events.
+- Metrics counters/timers with a pluggable sink (no-op default); expose in
+  health.
+- Error boundary page + friendly 500 responses.
 
-- [x] Admin login (reuses auth); Staff can view/update orders.
-- [x] Order management: list all, update status to paid/shipped/cancelled.
-- [x] Product list (read-only for now).
-- [ ] Product CRUD: create/update/archive/variants/inventory.
-- [ ] User management: roles, deactivate/reactivate accounts.
-- [ ] Audit log: minimal table capturing action, user, target, timestamp.
+## Stage 6 — Security Hardening
 
-## Stage 7 — Observability & Operations
+- Input validation everywhere (finish Stage 0 item).
+- Rate limit tuning + per-IP bucket for auth/webhooks; add captcha hook if
+  needed.
+- Security headers review (CSP nonce for inline styles/buttons if required).
+- Strict cookie lifetimes/rotation for auth; logout everywhere helper.
 
-- Health endpoint (`/health`) already present; extend to include DB connectivity
-  check.
-- Structured logging (app-level helper) with request id; log auth errors and
-  webhook handling.
-- Metrics hooks (simple counters/timers) with a pluggable reporter (noop by
-  default).
-- Error handling: global error boundary to render friendly pages; 404 page.
+## Stage 7 — DX & Testing
 
-## Stage 8 — Security & Compliance
+- Add minimal unit/integration tests (e.g., handlers, validation).
+- Scripted local e2e smoke (warmup + DB seed + checkout dry-run without Stripe
+  call).
+- Keep docs aligned (README/DEPLOYMENT) with new flows/envs.
 
-- [x] Harden cookies: `HttpOnly`, `SameSite=Lax`, `Secure` in prod; short
-      lifetimes.
-- [ ] Input validation: zod-like validation for forms/params; server-side only.
-- [x] Rate limiting (in-memory) on auth routes and webhook endpoint.
-- [x] Stripe webhook secret check mandatory; reject unsigned payloads.
-- [x] Content Security Policy + security headers set.
+## Stage 8 — Nice-to-haves
 
-## Stage 9 — Deployment & DX
-
-- Deploy target: Deno Deploy via `deno task deploy` entrypoint `src/main.tsx`.
-- Build pipeline: `pnpm install`, `deno task build:css`, `deno task warmup`,
-  `deno task lint`, `deno task fmt --check`.
-- Env checklist for prod: `APP_ENV`, `PORT` (optional), `DATABASE_URL`,
-  `COOKIE_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`,
-  `STRIPE_WEBHOOK_SECRET`, `DEPLOY_PROJECT`.
-- Local tooling: Postgres, Stripe CLI for webhook forwarding; docs for running
-  `stripe listen` and mapping to `/webhooks/stripe`.
-
-## Stage 10 — Nice-to-haves (after core)
-
-- Search/sort enhancements with precomputed facets.
-- Image handling: aspect-ratio helpers and placeholders; optional CDN base URL.
-- Email notifications: order confirmation using a provider (abstracted service).
-- Accessibility pass: focus order, skip links, aria labels on forms/nav.
-- Performance: HTTP caching for public assets, ETag/304 on pages where safe.
+- Image CDN/base URL support; skeleton loaders for products.
+- Search/sort enhancements (price, category chips).
+- Email notifications (order confirmation) behind a provider-agnostic interface.
+- Performance: HTTP caching for public assets, ETag/304 where safe.
