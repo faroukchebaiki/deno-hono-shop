@@ -29,8 +29,25 @@ const numberFromEnv = (value: string | undefined, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const normalizeEnvValue = (name: string, value: string): string => {
+  let normalized = value.trim();
+  if (normalized.startsWith(`${name}=`)) {
+    normalized = normalized.slice(name.length + 1).trim();
+  }
+  const first = normalized[0];
+  const last = normalized[normalized.length - 1];
+  if (
+    normalized.length >= 2 &&
+    ((first === '"' && last === '"') || (first === "'" && last === "'"))
+  ) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  return normalized;
+};
+
 const requireEnv = (name: string): string => {
-  const value = Deno.env.get(name)?.trim();
+  const raw = Deno.env.get(name);
+  const value = raw ? normalizeEnvValue(name, raw) : "";
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }

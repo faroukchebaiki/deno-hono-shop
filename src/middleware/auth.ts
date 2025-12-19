@@ -46,25 +46,30 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
   const token = getCookie(c, name);
   if (!token) return await next();
 
-  const payload = await verifySessionToken(token);
-  if (!payload) {
-    deleteCookie(c, name, { path: "/", secure, sameSite: "Lax" });
-    return await next();
+  try {
+    const payload = await verifySessionToken(token);
+    if (!payload) {
+      deleteCookie(c, name, { path: "/", secure, sameSite: "Lax" });
+      return await next();
+    }
+
+    const user = await userRepository.findActiveById(payload.sub);
+    if (!user) {
+      deleteCookie(c, name, { path: "/", secure, sameSite: "Lax" });
+      return await next();
+    }
+
+    const authUser: AuthUser = {
+      id: user.id,
+      role: user.role,
+      email: user.email ?? undefined,
+    };
+    c.set("user", authUser);
+  } catch (error) {
+    console.error("Auth middleware failed to resolve session:", error);
   }
 
-  const user = await userRepository.findActiveById(payload.sub);
-  if (!user) {
-    deleteCookie(c, name, { path: "/", secure, sameSite: "Lax" });
-    return await next();
-  }
-
-  const authUser: AuthUser = {
-    id: user.id,
-    role: user.role,
-    email: user.email ?? undefined,
-  };
-  c.set("user", authUser);
-  await next();
+  return await next();
 };
 
 export const requireUser = (): MiddlewareHandler => async (c, next) => {

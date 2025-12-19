@@ -7,6 +7,12 @@ const textIncludes = async (response: Response, needle: string) => {
   return text.includes(needle);
 };
 
+const extractCookie = (setCookie: string | null, name: string) => {
+  if (!setCookie) return null;
+  const match = setCookie.match(new RegExp(`${name}=([^;]+)`));
+  return match?.[1] ?? null;
+};
+
 const run = async () => {
   // Simulate deploy-like execution (no port binding, SSR fetch handler only).
   Deno.env.set("DENO_DEPLOYMENT_ID", "local-warmup");
@@ -83,6 +89,55 @@ const run = async () => {
           await textIncludes(res, 'action="/auth/login"'),
           "Login page did not render expected form",
         );
+      },
+    },
+    {
+      name: "POST /auth/login does not echo credentials",
+      request: new Request("http://local/auth/login"),
+      verify: async () => {
+        const pageRes = await fetchFn(new Request("http://local/auth/login"));
+        assert(pageRes.status === 200, `Expected 200, got ${pageRes.status}`);
+
+        const csrf = extractCookie(
+          pageRes.headers.get("set-cookie"),
+          "csrf_token",
+        );
+        assert(csrf, "Expected CSRF cookie to be set");
+
+        const body = new URLSearchParams({
+          _csrf: csrf,
+          returnTo: "/",
+          email: "admin@example.com",
+          password: "demo1234",
+        });
+
+        const loginRes = await fetchFn(
+          new Request("http://local/auth/login", {
+            method: "POST",
+            headers: {
+              "content-type": "application/x-www-form-urlencoded",
+              cookie: `csrf_token=${csrf}`,
+            },
+            body: body.toString(),
+          }),
+        );
+
+        assert(
+          [200, 302].includes(loginRes.status),
+          `Expected 200 or 302, got ${loginRes.status}`,
+        );
+
+        if (loginRes.status === 200) {
+          const html = await loginRes.text();
+          assert(
+            !html.includes("demo1234"),
+            "Login response echoed the password.",
+          );
+          assert(
+            !html.includes("admin@example.com"),
+            "Login response echoed the email address.",
+          );
+        }
       },
     },
     {

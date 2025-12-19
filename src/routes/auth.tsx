@@ -177,15 +177,18 @@ auth.post("/login", async (c) => {
   if (errors.length) {
     return renderLogin(c, { error: errors.join(" "), returnTo });
   }
+  if (!validatedEmail.ok || !validatedPassword.ok) {
+    return renderLogin(c, { error: "Invalid credentials.", returnTo });
+  }
 
   try {
-    const user = await userRepository.findByEmail(validatedEmail as string);
+    const user = await userRepository.findByEmail(validatedEmail.value);
     if (!user || !user.passwordHash) {
       return renderLogin(c, { error: "Invalid credentials.", returnTo });
     }
 
     const validPassword = await verifyPassword(
-      validatedPassword as string,
+      validatedPassword.value,
       user.passwordHash,
     );
     if (!validPassword) {
@@ -222,18 +225,21 @@ auth.post("/register", async (c) => {
   if (errors.length) {
     return renderRegister(c, { error: errors.join(" ") });
   }
+  if (!validatedEmail.ok || !validatedPassword.ok) {
+    return renderRegister(c, { error: "Invalid input." });
+  }
 
   try {
-    const existing = await userRepository.findByEmail(validatedEmail as string);
+    const existing = await userRepository.findByEmail(validatedEmail.value);
     if (existing) {
       return renderRegister(c, {
         error: "An account with that email already exists.",
       });
     }
 
-    const passwordHash = await hashPassword(validatedPassword as string);
+    const passwordHash = await hashPassword(validatedPassword.value);
     const user = await userRepository.create(
-      validatedEmail as string,
+      validatedEmail.value,
       passwordHash,
       name,
     );

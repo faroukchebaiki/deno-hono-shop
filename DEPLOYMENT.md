@@ -26,6 +26,12 @@ Environment variables required at runtime:
 - `COOKIE_SECRET` (strong random string)
 - `DEPLOY_PROJECT` (optional; defaults to `deno-hono-shop`)
 
+Notes for Deno Deploy secrets:
+
+- Set the key (for example `DATABASE_URL`) and paste only the raw value.
+- Avoid including surrounding quotes or a `KEY=` prefix when pasting into the
+  dashboard.
+
 Stripe keys are not required until payments are implemented; add them later if
 you integrate Stripe.
 

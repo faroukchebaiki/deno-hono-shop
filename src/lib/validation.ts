@@ -1,38 +1,52 @@
-export const parseEmail = (input: unknown, field = "Email") => {
-  if (typeof input !== "string") return `${field} is required.`;
+export type ValidationResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: string };
+
+const ok = <T>(value: T): ValidationResult<T> => ({ ok: true, value });
+const err = (error: string): ValidationResult<never> => ({ ok: false, error });
+
+export const parseEmail = (
+  input: unknown,
+  field = "Email",
+): ValidationResult<string> => {
+  if (typeof input !== "string") return err(`${field} is required.`);
   const value = input.trim().toLowerCase();
-  if (!value || !value.includes("@")) return `${field} is invalid.`;
-  return value;
+  if (!value || !value.includes("@")) return err(`${field} is invalid.`);
+  return ok(value);
 };
 
 export const parseString = (
   input: unknown,
   field: string,
   options?: { minLength?: number },
-) => {
-  if (typeof input !== "string") return `${field} is required.`;
+): ValidationResult<string> => {
+  if (typeof input !== "string") return err(`${field} is required.`);
   const value = input.trim();
   if (options?.minLength && value.length < options.minLength) {
-    return `${field} must be at least ${options.minLength} characters.`;
+    return err(`${field} must be at least ${options.minLength} characters.`);
   }
-  return value;
+  return ok(value);
 };
 
 export const parsePositiveInt = (
   input: unknown,
   field: string,
   fallback?: number,
-) => {
+): ValidationResult<number> => {
   const parsed = Number(input);
   if (!Number.isFinite(parsed)) {
-    return fallback ?? `${field} must be a number.`;
+    return fallback !== undefined
+      ? ok(fallback)
+      : err(`${field} must be a number.`);
   }
   const floored = Math.floor(parsed);
   if (floored <= 0) {
-    return fallback ?? `${field} must be greater than zero.`;
+    return fallback !== undefined
+      ? ok(fallback)
+      : err(`${field} must be greater than zero.`);
   }
-  return floored;
+  return ok(floored);
 };
 
-export const collectErrors = (values: (string | number)[]) =>
-  values.filter((v) => typeof v === "string") as string[];
+export const collectErrors = (results: ValidationResult<unknown>[]) =>
+  results.flatMap((result) => (result.ok ? [] : [result.error]));
