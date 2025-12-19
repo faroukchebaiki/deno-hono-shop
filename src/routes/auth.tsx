@@ -186,18 +186,26 @@ auth.post("/login", async (c) => {
     return renderLogin(c, { error: errors.join(" "), returnTo });
   }
 
-  const user = await userRepository.findByEmail(email);
-  if (!user || !user.passwordHash) {
-    return renderLogin(c, { error: "Invalid credentials.", returnTo });
-  }
+  try {
+    const user = await userRepository.findByEmail(email);
+    if (!user || !user.passwordHash) {
+      return renderLogin(c, { error: "Invalid credentials.", returnTo });
+    }
 
-  const validPassword = await verifyPassword(password, user.passwordHash);
-  if (!validPassword) {
-    return renderLogin(c, { error: "Invalid credentials.", returnTo });
-  }
+    const validPassword = await verifyPassword(password, user.passwordHash);
+    if (!validPassword) {
+      return renderLogin(c, { error: "Invalid credentials.", returnTo });
+    }
 
-  await setSessionCookie(c, user.id, user.role);
-  return c.redirect(returnTo || "/");
+    await setSessionCookie(c, user.id, user.role);
+    return c.redirect(returnTo || "/");
+  } catch (err) {
+    console.error("Login error:", err);
+    return renderLogin(c, {
+      error: "Could not sign in. Check database connection and try again.",
+      returnTo,
+    });
+  }
 });
 
 auth.get("/register", (c) => {
@@ -218,17 +226,25 @@ auth.post("/register", async (c) => {
     return renderRegister(c, { error: errors.join(" ") });
   }
 
-  const existing = await userRepository.findByEmail(email);
-  if (existing) {
+  try {
+    const existing = await userRepository.findByEmail(email);
+    if (existing) {
+      return renderRegister(c, {
+        error: "An account with that email already exists.",
+      });
+    }
+
+    const passwordHash = await hashPassword(password);
+    const user = await userRepository.create(email, passwordHash, name);
+    await setSessionCookie(c, user.id, user.role);
+    return c.redirect("/");
+  } catch (err) {
+    console.error("Register error:", err);
     return renderRegister(c, {
-      error: "An account with that email already exists.",
+      error:
+        "Could not create account. Check database connection and try again.",
     });
   }
-
-  const passwordHash = await hashPassword(password);
-  const user = await userRepository.create(email, passwordHash, name);
-  await setSessionCookie(c, user.id, user.role);
-  return c.redirect("/");
 });
 
 auth.post("/logout", async (c) => {
