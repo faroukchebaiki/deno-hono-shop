@@ -8,7 +8,9 @@ import { authRoutes } from "./routes/auth.tsx";
 import { OrderStatus, Role } from "./types/domain.ts";
 import {
   addressRepository,
+  auditLogRepository,
   cartRepository,
+  orderItemRepository,
   orderRepository,
   productRepository,
   userRepository,
@@ -593,6 +595,16 @@ type AccountAddress = Awaited<
   ReturnType<typeof addressRepository.listByUser>
 >[number];
 
+type OrderItem = Awaited<
+  ReturnType<typeof orderItemRepository.listByOrderId>
+>[number];
+
+type AuditLogEntry = Awaited<
+  ReturnType<typeof auditLogRepository.listRecent>
+>[number];
+
+type AdminUser = Awaited<ReturnType<typeof userRepository.listAll>>[number];
+
 type AdminOrder = Awaited<ReturnType<typeof orderRepository.listAll>>[number];
 
 const getStripeClient = () => {
@@ -1130,6 +1142,15 @@ const formatDate = (iso: string) =>
     year: "numeric",
   });
 
+const formatDateTime = (iso: string) =>
+  new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
 const statusBadge = (status: OrderStatus) => {
   const base = "badge badge-sm";
   switch (status) {
@@ -1610,7 +1631,11 @@ const AddressFormPage = (
 );
 
 const OrderDetailPage = (
-  { order }: { order: AccountOrder },
+  {
+    order,
+    items,
+    history,
+  }: { order: AccountOrder; items: OrderItem[]; history: AuditLogEntry[] },
 ) => (
   <PageShell>
     <main class="space-y-4">
@@ -1642,10 +1667,118 @@ const OrderDetailPage = (
         <div class="rounded-xl border border-base-300 bg-base-200/60 p-4 text-sm">
           <p class="font-semibold mb-1">Fulfillment</p>
           <p class="text-base-content/70">
-            Shipment and line items will be added in the next stages.
+            Shipment status updates are tracked below.
           </p>
         </div>
         <a href="/account" class="btn btn-ghost btn-sm">Back to account</a>
+      </div>
+      <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-semibold">Line items</h2>
+          <p class="text-sm text-base-content/70">
+            {items.length} item{items.length === 1 ? "" : "s"}
+          </p>
+        </div>
+        {items.length === 0
+          ? (
+            <p class="text-sm text-base-content/70">
+              No line items were recorded for this order.
+            </p>
+          )
+          : (
+            <div class="overflow-hidden rounded-xl border border-base-300">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Qty</th>
+                    <th>Price</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item) => (
+                    <tr key={item.id}>
+                      <td>
+                        {item.productSlug
+                          ? (
+                            <a
+                              class="link link-primary"
+                              href={`/products/${item.productSlug}`}
+                            >
+                              {item.productName ?? "Product"}
+                            </a>
+                          )
+                          : (item.productName ?? "Product")}
+                      </td>
+                      <td>{item.quantity}</td>
+                      <td>
+                        {formatMoneyCents(item.priceCents, item.currency)}
+                      </td>
+                      <td>
+                        {formatMoneyCents(
+                          item.priceCents * item.quantity,
+                          item.currency,
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+      </div>
+      <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-3">
+        <h2 class="text-lg font-semibold">Status history</h2>
+        {history.length === 0
+          ? (
+            <p class="text-sm text-base-content/70">
+              No status updates yet.
+            </p>
+          )
+          : (
+            <div class="space-y-2 text-sm">
+              {history.map((entry) => {
+                const metadata = entry.metadata as
+                  | Record<string, unknown>
+                  | null;
+                const from = typeof metadata?.from === "string"
+                  ? metadata.from
+                  : null;
+                const to = typeof metadata?.to === "string"
+                  ? metadata.to
+                  : null;
+                const source = typeof metadata?.source === "string"
+                  ? metadata.source
+                  : null;
+                const actor = entry.actorEmail ?? entry.actorRole ?? "System";
+                return (
+                  <div
+                    key={entry.id}
+                    class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-base-200 bg-base-200/40 px-3 py-2"
+                  >
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="font-semibold">
+                        {to ?? "Status update"}
+                      </span>
+                      {from && to && (
+                        <span class="text-base-content/60">
+                          {from} → {to}
+                        </span>
+                      )}
+                      <span class="text-base-content/60">
+                        by {actor}
+                        {source ? ` (${source})` : ""}
+                      </span>
+                    </div>
+                    <span class="text-base-content/60">
+                      {formatDateTime(entry.createdAt)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
       </div>
     </main>
   </PageShell>
@@ -1653,9 +1786,10 @@ const OrderDetailPage = (
 
 type AdminOrdersPageProps = {
   orders: AdminOrder[];
+  csrfToken: string;
 };
 
-const AdminOrdersPage = ({ orders }: AdminOrdersPageProps) => (
+const AdminOrdersPage = ({ orders, csrfToken }: AdminOrdersPageProps) => (
   <PageShell>
     <main class="space-y-6">
       <div class="flex items-center justify-between">
@@ -1682,7 +1816,14 @@ const AdminOrdersPage = ({ orders }: AdminOrdersPageProps) => (
           <tbody>
             {orders.map((order) => (
               <tr key={order.id}>
-                <td>{order.id.slice(0, 8)}</td>
+                <td>
+                  <a
+                    class="link link-primary"
+                    href={`/admin/orders/${order.id}`}
+                  >
+                    {order.id.slice(0, 8)}
+                  </a>
+                </td>
                 <td>{order.userId ?? "Guest"}</td>
                 <td>
                   <span class={statusBadge(order.status)}>{order.status}</span>
@@ -1701,6 +1842,7 @@ const AdminOrdersPage = ({ orders }: AdminOrdersPageProps) => (
                     {[
                       OrderStatus.PAID,
                       OrderStatus.SHIPPED,
+                      OrderStatus.REFUNDED,
                       OrderStatus.CANCELLED,
                     ].map((status) => (
                       <form
@@ -1708,6 +1850,7 @@ const AdminOrdersPage = ({ orders }: AdminOrdersPageProps) => (
                         action="/admin/orders/status"
                         key={`${order.id}-${status}`}
                       >
+                        <input type="hidden" name="_csrf" value={csrfToken} />
                         <input type="hidden" name="orderId" value={order.id} />
                         <input type="hidden" name="status" value={status} />
                         <button
@@ -1728,6 +1871,176 @@ const AdminOrdersPage = ({ orders }: AdminOrdersPageProps) => (
             ))}
           </tbody>
         </table>
+      </div>
+    </main>
+  </PageShell>
+);
+
+const AdminOrderDetailPage = (
+  {
+    order,
+    items,
+    history,
+    userEmail,
+    csrfToken,
+  }: {
+    order: AdminOrder;
+    items: OrderItem[];
+    history: AuditLogEntry[];
+    userEmail?: string | null;
+    csrfToken: string;
+  },
+) => (
+  <PageShell>
+    <main class="space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+            Admin
+          </p>
+          <h1 class="text-3xl font-bold">Order {order.id.slice(0, 8)}</h1>
+          <p class="text-sm text-base-content/70">
+            {userEmail ?? order.userId ?? "Guest"} ·{" "}
+            {formatDate(order.createdAt)}
+          </p>
+        </div>
+        <a href="/admin/orders" class="btn btn-ghost btn-sm">
+          Back to orders
+        </a>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-[2fr,1fr]">
+        <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-semibold">Line items</h2>
+            <p class="text-sm text-base-content/70">
+              {items.length} item{items.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          {items.length === 0
+            ? (
+              <p class="text-sm text-base-content/70">
+                No line items recorded.
+              </p>
+            )
+            : (
+              <div class="overflow-hidden rounded-xl border border-base-300">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Qty</th>
+                      <th>Price</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => (
+                      <tr key={item.id}>
+                        <td>
+                          {item.productSlug
+                            ? (
+                              <a
+                                class="link link-primary"
+                                href={`/products/${item.productSlug}`}
+                              >
+                                {item.productName ?? "Product"}
+                              </a>
+                            )
+                            : (item.productName ?? "Product")}
+                        </td>
+                        <td>{item.quantity}</td>
+                        <td>
+                          {formatMoneyCents(
+                            item.priceCents,
+                            item.currency,
+                          )}
+                        </td>
+                        <td>
+                          {formatMoneyCents(
+                            item.priceCents * item.quantity,
+                            item.currency,
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+        </div>
+
+        <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-4">
+          <div>
+            <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+              Status
+            </p>
+            <h2 class="text-xl font-semibold">{order.status}</h2>
+            <p class="text-sm text-base-content/70">
+              Total: {order.amountCents
+                ? formatMoneyCents(order.amountCents, order.currency ?? "USD")
+                : "—"}
+            </p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            {[
+              OrderStatus.PAID,
+              OrderStatus.SHIPPED,
+              OrderStatus.REFUNDED,
+              OrderStatus.CANCELLED,
+            ].map((status) => (
+              <form
+                method="POST"
+                action="/admin/orders/status"
+                key={`${order.id}-${status}`}
+              >
+                <input type="hidden" name="_csrf" value={csrfToken} />
+                <input type="hidden" name="orderId" value={order.id} />
+                <input type="hidden" name="status" value={status} />
+                <button
+                  type="submit"
+                  class={`btn btn-xs ${
+                    order.status === status ? "btn-disabled" : "btn-outline"
+                  }`}
+                >
+                  {status.toLowerCase()}
+                </button>
+              </form>
+            ))}
+          </div>
+          <div class="divider" />
+          <div class="space-y-2 text-sm">
+            <p class="font-semibold">Status history</p>
+            {history.length === 0
+              ? <p class="text-base-content/70">No updates yet.</p>
+              : (
+                history.map((entry) => {
+                  const metadata = entry.metadata as
+                    | Record<string, unknown>
+                    | null;
+                  const from = typeof metadata?.from === "string"
+                    ? metadata.from
+                    : null;
+                  const to = typeof metadata?.to === "string"
+                    ? metadata.to
+                    : null;
+                  const source = typeof metadata?.source === "string"
+                    ? metadata.source
+                    : null;
+                  const actor = entry.actorEmail ?? entry.actorRole ?? "System";
+                  return (
+                    <div key={entry.id} class="text-base-content/70">
+                      <span class="font-semibold">{to ?? "Status update"}</span>
+                      {from && to && <span>· {from} → {to}</span>}
+                      <span>· {actor}</span>
+                      {source && <span>({source})</span>}
+                      <span>· {formatDateTime(entry.createdAt)}</span>
+                    </div>
+                  );
+                })
+              )}
+          </div>
+        </div>
       </div>
     </main>
   </PageShell>
@@ -1964,6 +2277,156 @@ const AdminProductFormPage = (
           </a>
         </div>
       </form>
+    </main>
+  </PageShell>
+);
+
+const AdminUsersPage = (
+  {
+    users,
+    csrfToken,
+    notice,
+  }: {
+    users: AdminUser[];
+    csrfToken: string;
+    notice?: string;
+  },
+) => (
+  <PageShell>
+    <main class="space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+            Admin
+          </p>
+          <h1 class="text-3xl font-bold">Users</h1>
+        </div>
+        <a href="/admin" class="btn btn-ghost btn-sm">
+          Back to admin
+        </a>
+      </div>
+      {notice && <div class="alert alert-success text-sm">{notice}</div>}
+      <div class="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm">
+        <table class="table table-zebra">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Name</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((user) => (
+              <tr key={user.id}>
+                <td>{user.email}</td>
+                <td>{user.name ?? "—"}</td>
+                <td class="capitalize">{user.role.toLowerCase()}</td>
+                <td>{user.isActive ? "Active" : "Disabled"}</td>
+                <td>{formatDate(user.createdAt)}</td>
+                <td>
+                  <div class="flex flex-wrap gap-2">
+                    <form method="POST" action={`/admin/users/${user.id}/role`}>
+                      <input type="hidden" name="_csrf" value={csrfToken} />
+                      <select
+                        class="select select-bordered select-xs"
+                        name="role"
+                      >
+                        {[Role.CUSTOMER, Role.STAFF, Role.ADMIN].map(
+                          (role) => (
+                            <option
+                              value={role}
+                              key={role}
+                              selected={role === user.role}
+                            >
+                              {role}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                      <button type="submit" class="btn btn-ghost btn-xs">
+                        Update
+                      </button>
+                    </form>
+                    <form
+                      method="POST"
+                      action={`/admin/users/${user.id}/status`}
+                    >
+                      <input type="hidden" name="_csrf" value={csrfToken} />
+                      <input
+                        type="hidden"
+                        name="active"
+                        value={user.isActive ? "false" : "true"}
+                      />
+                      <button type="submit" class="btn btn-ghost btn-xs">
+                        {user.isActive ? "Deactivate" : "Activate"}
+                      </button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </PageShell>
+);
+
+const auditSummary = (entry: AuditLogEntry) => {
+  const metadata = entry.metadata as Record<string, unknown> | null;
+  if (!metadata) return "";
+  const from = typeof metadata.from === "string" ? metadata.from : null;
+  const to = typeof metadata.to === "string" ? metadata.to : null;
+  if (from && to) return `${from} → ${to}`;
+  const detail = typeof metadata.detail === "string" ? metadata.detail : null;
+  return detail ?? "";
+};
+
+const AdminAuditPage = (
+  { entries }: { entries: AuditLogEntry[] },
+) => (
+  <PageShell>
+    <main class="space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-xs uppercase tracking-[0.18em] text-primary/80">
+            Admin
+          </p>
+          <h1 class="text-3xl font-bold">Audit log</h1>
+        </div>
+        <a href="/admin" class="btn btn-ghost btn-sm">
+          Back to admin
+        </a>
+      </div>
+      <div class="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm">
+        <table class="table table-zebra">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Actor</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry) => (
+              <tr key={entry.id}>
+                <td>{formatDateTime(entry.createdAt)}</td>
+                <td>{entry.actorEmail ?? entry.actorRole ?? "System"}</td>
+                <td>{entry.action}</td>
+                <td>
+                  {entry.targetType} · {entry.targetId.slice(0, 8)}
+                </td>
+                <td>{auditSummary(entry)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </main>
   </PageShell>
 );
@@ -2344,6 +2807,18 @@ app.post("/checkout", async (c: Context) => {
       productName: item.name,
     })),
   });
+  await auditLogRepository.create({
+    actorId: authUser?.id ?? null,
+    actorRole: authUser?.role ?? null,
+    action: "order.status",
+    targetType: "order",
+    targetId: order.id,
+    metadata: {
+      from: null,
+      to: OrderStatus.PENDING,
+      source: "checkout",
+    },
+  });
 
   const origin = requestOrigin(c);
   const successUrl = `${origin}/checkout/success?orderId=${order.id}`;
@@ -2442,10 +2917,24 @@ app.post("/webhooks/stripe", async (c: Context) => {
           : null;
 
         if (order) {
-          await orderRepository.updateStripeState(order.id, {
-            status: OrderStatus.PAID,
-            stripePaymentIntentId: paymentIntentId,
-          });
+          if (order.status !== OrderStatus.PAID) {
+            await orderRepository.updateStripeState(order.id, {
+              status: OrderStatus.PAID,
+              stripePaymentIntentId: paymentIntentId,
+            });
+            await auditLogRepository.create({
+              actorId: null,
+              actorRole: "SYSTEM",
+              action: "order.status",
+              targetType: "order",
+              targetId: order.id,
+              metadata: {
+                from: order.status,
+                to: OrderStatus.PAID,
+                source: "stripe",
+              },
+            });
+          }
           if (order.cartId) {
             await cartRepository.clear(order.cartId);
           }
@@ -2456,10 +2945,25 @@ app.post("/webhooks/stripe", async (c: Context) => {
         const pi = event.data.object as Stripe.PaymentIntent;
         const orderId = pi.metadata?.orderId;
         if (orderId) {
-          await orderRepository.updateStripeState(orderId, {
-            status: OrderStatus.CANCELLED,
-            stripePaymentIntentId: pi.id,
-          });
+          const order = await orderRepository.findById(orderId);
+          if (order && order.status !== OrderStatus.CANCELLED) {
+            await orderRepository.updateStripeState(orderId, {
+              status: OrderStatus.CANCELLED,
+              stripePaymentIntentId: pi.id,
+            });
+            await auditLogRepository.create({
+              actorId: null,
+              actorRole: "SYSTEM",
+              action: "order.status",
+              targetType: "order",
+              targetId: order.id,
+              metadata: {
+                from: order.status,
+                to: OrderStatus.CANCELLED,
+                source: "stripe",
+              },
+            });
+          }
         }
         break;
       }
@@ -2920,12 +3424,17 @@ app.post(
 
 app.get("/account/orders/:id", requireUser(), async (c: Context) => {
   const authUser = c.get("user") as AuthUser;
-  const order = await orderRepository.findById(c.req.param("id"));
+  const orderId = c.req.param("id");
+  const [order, items, history] = await Promise.all([
+    orderRepository.findById(orderId),
+    orderItemRepository.listByOrderId(orderId),
+    auditLogRepository.listByTarget("order", orderId),
+  ]);
   if (!order || order.userId !== authUser.id) {
     return c.notFound();
   }
   return c.render(
-    <OrderDetailPage order={order} />,
+    <OrderDetailPage order={order} items={items} history={history} />,
     { title: `Order ${order.id.slice(0, 8)} · Hono Shop` },
   );
 });
@@ -2942,7 +3451,7 @@ app.get("/admin", requireRole([Role.ADMIN]), (c: Context) =>
             can view products.
           </p>
         </div>
-        <div class="grid gap-4 sm:grid-cols-2">
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-2">
             <h2 class="text-lg font-semibold">Orders</h2>
             <p class="text-sm text-base-content/70">
@@ -2961,6 +3470,24 @@ app.get("/admin", requireRole([Role.ADMIN]), (c: Context) =>
               View products
             </a>
           </div>
+          <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-2">
+            <h2 class="text-lg font-semibold">Users</h2>
+            <p class="text-sm text-base-content/70">
+              Manage roles and access for customers and staff.
+            </p>
+            <a href="/admin/users" class="btn btn-outline btn-sm">
+              View users
+            </a>
+          </div>
+          <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm space-y-2">
+            <h2 class="text-lg font-semibold">Audit log</h2>
+            <p class="text-sm text-base-content/70">
+              Track admin actions and order status changes.
+            </p>
+            <a href="/admin/audit" class="btn btn-outline btn-sm">
+              View log
+            </a>
+          </div>
         </div>
       </main>
     </PageShell>,
@@ -2971,9 +3498,38 @@ app.get(
   requireRole([Role.ADMIN, Role.STAFF]),
   async (c: Context) => {
     const orders = await orderRepository.listAll(100);
-    return c.render(<AdminOrdersPage orders={orders} />, {
+    const csrfToken = ensureCsrfToken(c);
+    return c.render(<AdminOrdersPage orders={orders} csrfToken={csrfToken} />, {
       title: "Admin · Orders",
     });
+  },
+);
+
+app.get(
+  "/admin/orders/:id",
+  requireRole([Role.ADMIN, Role.STAFF]),
+  async (c: Context) => {
+    const orderId = c.req.param("id");
+    const [order, items, history] = await Promise.all([
+      orderRepository.findById(orderId),
+      orderItemRepository.listByOrderId(orderId),
+      auditLogRepository.listByTarget("order", orderId),
+    ]);
+    if (!order) return c.notFound();
+    const user = order.userId
+      ? await userRepository.findByIdAny(order.userId)
+      : null;
+    const csrfToken = ensureCsrfToken(c);
+    return c.render(
+      <AdminOrderDetailPage
+        order={order}
+        items={items}
+        history={history}
+        userEmail={user?.email ?? null}
+        csrfToken={csrfToken}
+      />,
+      { title: `Admin · Order ${order.id.slice(0, 8)}` },
+    );
   },
 );
 
@@ -2982,20 +3538,45 @@ app.post(
   requireRole([Role.ADMIN, Role.STAFF]),
   async (c: Context) => {
     const form = await c.req.parseBody() as Record<string, string>;
+    if (!validateCsrf(c, form._csrf)) {
+      return c.text("Invalid CSRF token", 400);
+    }
     const orderId = form.orderId?.toString();
     const status = form.status?.toString() as OrderStatus | undefined;
     if (!orderId || !status) return c.text("Missing order id or status", 400);
 
     if (
-      ![OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.CANCELLED].includes(
-        status,
-      )
+      ![
+        OrderStatus.PAID,
+        OrderStatus.SHIPPED,
+        OrderStatus.REFUNDED,
+        OrderStatus.CANCELLED,
+      ].includes(status)
     ) {
       return c.text("Invalid status", 400);
     }
 
-    await orderRepository.updateStatus(orderId, status);
-    return c.redirect("/admin/orders", 303);
+    const existing = await orderRepository.findById(orderId);
+    if (!existing) return c.text("Order not found", 404);
+
+    if (existing.status !== status) {
+      await orderRepository.updateStatus(orderId, status);
+      const authUser = c.get("user") as AuthUser | undefined;
+      await auditLogRepository.create({
+        actorId: authUser?.id ?? null,
+        actorRole: authUser?.role ?? null,
+        action: "order.status",
+        targetType: "order",
+        targetId: orderId,
+        metadata: {
+          from: existing.status,
+          to: status,
+          source: "admin",
+        },
+      });
+    }
+
+    return c.redirect(`/admin/orders/${orderId}`, 303);
   },
 );
 
@@ -3215,6 +3796,94 @@ app.post(
     }
   },
 );
+
+app.get("/admin/users", requireRole([Role.ADMIN]), async (c: Context) => {
+  const users = await userRepository.listAll(200);
+  const csrfToken = ensureCsrfToken(c);
+  const notice = c.req.query("notice") ?? undefined;
+  return c.render(
+    <AdminUsersPage users={users} csrfToken={csrfToken} notice={notice} />,
+    {
+      title: "Admin · Users",
+    },
+  );
+});
+
+app.post(
+  "/admin/users/:id/role",
+  requireRole([Role.ADMIN]),
+  async (c: Context) => {
+    const form = await c.req.parseBody() as Record<string, string>;
+    if (!validateCsrf(c, form._csrf)) {
+      return c.text("Invalid CSRF token", 400);
+    }
+    const role = form.role?.toString() as Role | undefined;
+    if (!role || ![Role.CUSTOMER, Role.STAFF, Role.ADMIN].includes(role)) {
+      return c.text("Invalid role", 400);
+    }
+    const userId = c.req.param("id");
+    const existing = await userRepository.findByIdAny(userId);
+    if (!existing) return c.text("User not found", 404);
+    if (existing.role !== role) {
+      await userRepository.setRole(userId, role);
+      const authUser = c.get("user") as AuthUser | undefined;
+      await auditLogRepository.create({
+        actorId: authUser?.id ?? null,
+        actorRole: authUser?.role ?? null,
+        action: "user.role",
+        targetType: "user",
+        targetId: userId,
+        metadata: {
+          from: existing.role,
+          to: role,
+        },
+      });
+    }
+    return c.redirect("/admin/users?notice=Role%20updated.", 303);
+  },
+);
+
+app.post(
+  "/admin/users/:id/status",
+  requireRole([Role.ADMIN]),
+  async (c: Context) => {
+    const form = await c.req.parseBody() as Record<string, string>;
+    if (!validateCsrf(c, form._csrf)) {
+      return c.text("Invalid CSRF token", 400);
+    }
+    const activeValue = form.active?.toString();
+    if (activeValue !== "true" && activeValue !== "false") {
+      return c.text("Invalid status", 400);
+    }
+    const userId = c.req.param("id");
+    const existing = await userRepository.findByIdAny(userId);
+    if (!existing) return c.text("User not found", 404);
+    const isActive = activeValue === "true";
+    if (existing.isActive !== isActive) {
+      await userRepository.setActive(userId, isActive);
+      const authUser = c.get("user") as AuthUser | undefined;
+      await auditLogRepository.create({
+        actorId: authUser?.id ?? null,
+        actorRole: authUser?.role ?? null,
+        action: "user.status",
+        targetType: "user",
+        targetId: userId,
+        metadata: {
+          from: existing.isActive ? "active" : "disabled",
+          to: isActive ? "active" : "disabled",
+        },
+      });
+    }
+    return c.redirect("/admin/users?notice=Status%20updated.", 303);
+  },
+);
+
+app.get("/admin/audit", requireRole([Role.ADMIN]), async (c: Context) => {
+  const entries = await auditLogRepository.listRecent(200);
+  return c.render(<AdminAuditPage entries={entries} />, {
+    title: "Admin · Audit log",
+  });
+});
 
 app.get("/health", async (c: Context) => {
   const dbCheck = c.req.query("db") === "1"

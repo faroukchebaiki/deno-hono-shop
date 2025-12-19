@@ -8,6 +8,8 @@ type UserRow = {
   role: Role;
   passwordHash: string | null;
   isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type ProductListOptions = {
@@ -44,6 +46,19 @@ type OrderRow = {
   stripePaymentIntentId: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+type OrderItemRow = {
+  id: string;
+  orderId: string;
+  productId: string;
+  quantity: number;
+  priceCents: number;
+  currency: string;
+  productName: string | null;
+  createdAt: string;
+  productSlug: string | null;
+  productImages: string[] | null;
 };
 
 type CartRow = {
@@ -93,6 +108,18 @@ type AddressRow = {
   updatedAt: string;
 };
 
+type AuditLogRow = {
+  id: string;
+  actorId: string | null;
+  actorRole: string | null;
+  actorEmail: string | null;
+  action: string;
+  targetType: string;
+  targetId: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+};
+
 export const userRepository = {
   findByEmail: async (email: string) => {
     const sql = await getDb();
@@ -103,7 +130,9 @@ export const userRepository = {
         name,
         role,
         passwordhash as "passwordHash",
-        isactive as "isActive"
+        isactive as "isActive",
+        createdat as "createdAt",
+        updatedat as "updatedAt"
       from "User"
       where email = ${email} and isactive = true
       limit 1;
@@ -119,7 +148,9 @@ export const userRepository = {
         name,
         role,
         passwordhash as "passwordHash",
-        isactive as "isActive"
+        isactive as "isActive",
+        createdat as "createdAt",
+        updatedat as "updatedAt"
       from "User"
       where email = ${email}
       limit 1;
@@ -135,9 +166,29 @@ export const userRepository = {
         name,
         role,
         passwordhash as "passwordHash",
-        isactive as "isActive"
+        isactive as "isActive",
+        createdat as "createdAt",
+        updatedat as "updatedAt"
       from "User"
       where id = ${id} and isactive = true
+      limit 1;
+    `;
+    return rows[0];
+  },
+  findByIdAny: async (id: string) => {
+    const sql = await getDb();
+    const rows = await sql<UserRow>`
+      select
+        id,
+        email,
+        name,
+        role,
+        passwordhash as "passwordHash",
+        isactive as "isActive",
+        createdat as "createdAt",
+        updatedat as "updatedAt"
+      from "User"
+      where id = ${id}
       limit 1;
     `;
     return rows[0];
@@ -153,7 +204,9 @@ export const userRepository = {
         name,
         role,
         passwordhash as "passwordHash",
-        isactive as "isActive";
+        isactive as "isActive",
+        createdat as "createdAt",
+        updatedat as "updatedAt";
     `;
     return rows[0];
   },
@@ -175,7 +228,9 @@ export const userRepository = {
         name,
         role,
         passwordhash as "passwordHash",
-        isactive as "isActive";
+        isactive as "isActive",
+        createdat as "createdAt",
+        updatedat as "updatedAt";
     `;
     return rows[0];
   },
@@ -191,7 +246,63 @@ export const userRepository = {
         name,
         role,
         passwordhash as "passwordHash",
-        isactive as "isActive";
+        isactive as "isActive",
+        createdat as "createdAt",
+        updatedat as "updatedAt";
+    `;
+    return rows[0];
+  },
+  listAll: async (limit = 200) => {
+    const sql = await getDb();
+    const rows = await sql<UserRow>`
+      select
+        id,
+        email,
+        name,
+        role,
+        passwordhash as "passwordHash",
+        isactive as "isActive",
+        createdat as "createdAt",
+        updatedat as "updatedAt"
+      from "User"
+      order by createdat desc
+      limit ${limit};
+    `;
+    return rows;
+  },
+  setRole: async (id: string, role: Role) => {
+    const sql = await getDb();
+    const rows = await sql<UserRow>`
+      update "User"
+      set role = ${role}, updatedat = now()
+      where id = ${id}
+      returning
+        id,
+        email,
+        name,
+        role,
+        passwordhash as "passwordHash",
+        isactive as "isActive",
+        createdat as "createdAt",
+        updatedat as "updatedAt";
+    `;
+    return rows[0];
+  },
+  setActive: async (id: string, isActive: boolean) => {
+    const sql = await getDb();
+    const rows = await sql<UserRow>`
+      update "User"
+      set isactive = ${isActive}, updatedat = now()
+      where id = ${id}
+      returning
+        id,
+        email,
+        name,
+        role,
+        passwordhash as "passwordHash",
+        isactive as "isActive",
+        createdat as "createdAt",
+        updatedat as "updatedAt";
     `;
     return rows[0];
   },
@@ -736,6 +847,115 @@ export const orderRepository = {
         updatedat as "updatedAt";
     `;
     return rows[0];
+  },
+};
+
+export const orderItemRepository = {
+  listByOrderId: async (orderId: string) => {
+    const sql = await getDb();
+    const rows = await sql<OrderItemRow>`
+      select
+        oi.id,
+        oi.orderid as "orderId",
+        oi.productid as "productId",
+        oi.quantity,
+        oi.pricecents as "priceCents",
+        oi.currency,
+        oi.productname as "productName",
+        oi.createdat as "createdAt",
+        p.slug as "productSlug",
+        p.images as "productImages"
+      from "OrderItem" oi
+      left join "Product" p on p.id = oi.productid
+      where oi.orderid = ${orderId}
+      order by oi.createdat asc;
+    `;
+    return rows;
+  },
+};
+
+export const auditLogRepository = {
+  create: async (entry: {
+    actorId: string | null;
+    actorRole: string | null;
+    action: string;
+    targetType: string;
+    targetId: string;
+    metadata?: Record<string, unknown> | null;
+  }) => {
+    const sql = await getDb();
+    const metadataValue = entry.metadata
+      ? JSON.stringify(entry.metadata)
+      : null;
+    const rows = await sql<AuditLogRow>`
+      insert into "AuditLog" (
+        actorid,
+        actorrole,
+        action,
+        targettype,
+        targetid,
+        metadata
+      ) values (
+        ${entry.actorId},
+        ${entry.actorRole},
+        ${entry.action},
+        ${entry.targetType},
+        ${entry.targetId},
+        ${metadataValue}
+      )
+      returning
+        id,
+        actorid as "actorId",
+        actorrole as "actorRole",
+        null::text as "actorEmail",
+        action,
+        targettype as "targetType",
+        targetid as "targetId",
+        metadata,
+        createdat as "createdAt";
+    `;
+    return rows[0];
+  },
+  listByTarget: async (targetType: string, targetId: string, limit = 50) => {
+    const sql = await getDb();
+    const rows = await sql<AuditLogRow>`
+      select
+        al.id,
+        al.actorid as "actorId",
+        al.actorrole as "actorRole",
+        u.email as "actorEmail",
+        al.action,
+        al.targettype as "targetType",
+        al.targetid as "targetId",
+        al.metadata,
+        al.createdat as "createdAt"
+      from "AuditLog" al
+      left join "User" u on u.id = al.actorid
+      where al.targettype = ${targetType} and al.targetid = ${targetId}
+      order by al.createdat desc
+      limit ${limit};
+    `;
+    return rows;
+  },
+  listRecent: async (limit = 100) => {
+    const sql = await getDb();
+    const rows = await sql<AuditLogRow>`
+      select
+        al.id,
+        al.actorid as "actorId",
+        al.actorrole as "actorRole",
+        u.email as "actorEmail",
+        al.action,
+        al.targettype as "targetType",
+        al.targetid as "targetId",
+        al.metadata,
+        al.createdat as "createdAt"
+      from "AuditLog" al
+      left join "User" u on u.id = al.actorid
+      order by al.createdat desc
+      limit ${limit};
+    `;
+    return rows;
   },
 };
 

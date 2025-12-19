@@ -71,6 +71,22 @@ create unique index if not exists "Address_user_default_idx"
   on "Address"(userid, type)
   where isdefault = true;
 
+-- Stage 4: audit logs
+create table if not exists "AuditLog" (
+  id uuid primary key default gen_random_uuid(),
+  actorid uuid references "User"(id) on delete set null,
+  actorrole text,
+  action text not null,
+  targettype text not null,
+  targetid text not null,
+  metadata jsonb,
+  createdat timestamptz not null default now()
+);
+
+create index if not exists "AuditLog_target_idx" on "AuditLog"(targettype, targetid);
+create index if not exists "AuditLog_actor_idx" on "AuditLog"(actorid);
+create index if not exists "AuditLog_createdAt_idx" on "AuditLog"(createdat desc);
+
 -- Stage 4: carts and order items
 create table if not exists "Cart" (
   id uuid primary key default gen_random_uuid(),
