@@ -17,11 +17,16 @@ export type AuthConfig = {
   cookieSecret: string;
 };
 
+export type ImagesConfig = {
+  baseUrl: string;
+};
+
 export type AppConfig = {
   server: ServerConfig;
   database: DatabaseConfig;
   stripe: StripeConfig;
   auth: AuthConfig;
+  images: ImagesConfig;
 };
 
 const numberFromEnv = (value: string | undefined, fallback: number): number => {
@@ -54,6 +59,13 @@ const requireEnv = (name: string): string => {
   return value;
 };
 
+const optionalEnv = (name: string): string => {
+  const raw = Deno.env.get(name);
+  return raw ? normalizeEnvValue(name, raw) : "";
+};
+
+const normalizeBaseUrl = (value: string): string => value.replace(/\/+$/, "");
+
 export const loadConfig = (): AppConfig => ({
   server: {
     port: numberFromEnv(Deno.env.get("PORT"), 8000),
@@ -69,5 +81,8 @@ export const loadConfig = (): AppConfig => ({
   },
   auth: {
     cookieSecret: requireEnv("COOKIE_SECRET"),
+  },
+  images: {
+    baseUrl: normalizeBaseUrl(optionalEnv("IMAGE_BASE_URL")),
   },
 });

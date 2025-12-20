@@ -31,6 +31,7 @@ Environment variables required at runtime:
 - `DATABASE_URL` (Neon/Postgres connection string)
 - `COOKIE_SECRET` (strong random string)
 - `DEPLOY_PROJECT` (optional; defaults to `deno-hono-shop`)
+- `IMAGE_BASE_URL` (optional; prefix for product images/CDN)
 
 Notes for Deno Deploy secrets:
 

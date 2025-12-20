@@ -165,7 +165,7 @@ const renderRegister = (c: Context, opts?: { error?: string }) => {
 };
 
 const setSessionCookie = async (
-  c: Hono.Context,
+  c: Context,
   userId: string,
   role: Role,
   sessionVersion = 0,

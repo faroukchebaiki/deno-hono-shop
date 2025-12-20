@@ -36,7 +36,7 @@ import {
 import Stripe from "stripe";
 
 const startTime = Date.now();
-const { server, stripe: stripeConfig } = loadConfig();
+const { server, stripe: stripeConfig, images } = loadConfig();
 const app = new Hono();
 const isProdLike = server.environment === "production" ||
   Boolean(Deno.env.get("DENO_DEPLOYMENT_ID"));
@@ -169,6 +169,35 @@ const Layout = ({
   </html>
 );
 
+app.use("/static/*", async (c, next) => {
+  if (!["GET", "HEAD"].includes(c.req.method)) {
+    return await next();
+  }
+  const relativePath = c.req.path.replace(/^\/static\//, "");
+  if (relativePath.includes("..")) {
+    return c.text("Invalid path", 400);
+  }
+  try {
+    const filePath = `./static/${relativePath}`;
+    const stat = await Deno.stat(filePath);
+    if (stat.isFile) {
+      const mtime = stat.mtime ?? new Date(0);
+      const etag = `W/"${mtime.getTime()}-${stat.size}"`;
+      const ifNoneMatch = c.req.header("if-none-match");
+      c.header("ETag", etag);
+      c.header("Last-Modified", mtime.toUTCString());
+      c.header("Cache-Control", "public, max-age=86400");
+      if (ifNoneMatch === etag) {
+        c.status(304);
+        return c.body(null);
+      }
+    }
+  } catch {
+    // Let serveStatic handle missing files.
+  }
+  await next();
+});
+
 app.use("/static/*", serveStatic({ root: "./" }));
 
 app.use(
@@ -249,14 +278,14 @@ const ProductCard = (
   },
 ) => (
   <article class="card h-full border border-base-300 bg-base-100 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg">
-    <figure class="relative aspect-[4/3] overflow-hidden bg-base-200">
+    <figure class="relative aspect-[4/3] overflow-hidden bg-base-200 skeleton">
       {product.badge && (
         <span class="badge badge-primary absolute left-3 top-3">
           {product.badge}
         </span>
       )}
       <img
-        src={product.image}
+        src={resolveImageUrl(product.image)}
         alt={product.name}
         class="h-full w-full object-cover transition duration-500 hover:scale-105"
         loading="lazy"
@@ -323,14 +352,14 @@ const ProductHighlight = (
   },
 ) => (
   <section class="grid gap-6 overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm lg:grid-cols-2">
-    <div class="relative">
+    <div class="relative bg-base-200 skeleton">
       {product.badge && (
         <span class="badge badge-primary absolute left-4 top-4">
           {product.badge}
         </span>
       )}
       <img
-        src={product.image}
+        src={resolveImageUrl(product.image)}
         alt={product.name}
         class="h-full w-full object-cover"
         loading="lazy"
@@ -681,9 +710,25 @@ const formatMoneyCents = (cents: number, currency = "USD") =>
     cents / 100,
   );
 
+const resolveImageUrl = (value: string) => {
+  if (
+    value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("data:") ||
+    value.startsWith("//")
+  ) {
+    return value;
+  }
+  const normalized = value.startsWith("/") ? value : `/${value}`;
+  if (!images.baseUrl) return normalized;
+  return `${images.baseUrl}${normalized}`;
+};
+
 const getPrimaryImage = (images: string[] | null) =>
-  images?.[0] ??
-    "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80";
+  resolveImageUrl(
+    images?.[0] ??
+      "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80",
+  );
 
 const cspDirectives = [
   "default-src 'self'",
@@ -817,7 +862,7 @@ const DbProductCard = (
   },
 ) => (
   <article class="card h-full border border-base-300 bg-base-100 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg">
-    <figure class="relative aspect-[4/3] overflow-hidden bg-base-200">
+    <figure class="relative aspect-[4/3] overflow-hidden bg-base-200 skeleton">
       <img
         src={getPrimaryImage(product.images)}
         alt={product.name}
@@ -867,6 +912,7 @@ type ProductsPageProps = {
   categories: string[];
   selectedCategory: string;
   query: string;
+  sort: string;
   page: number;
   totalPages: number;
   totalCount: number;
@@ -882,6 +928,7 @@ const ProductsPage = ({
   categories,
   selectedCategory,
   query,
+  sort,
   page,
   totalPages,
   totalCount,
@@ -929,9 +976,54 @@ const ProductsPage = ({
               </option>
             ))}
           </select>
+          <select
+            class="select select-bordered select-sm w-full sm:w-44"
+            name="sort"
+          >
+            {productSortOptions.map((option) => (
+              <option
+                value={option.value}
+                selected={option.value === sort}
+                key={option.value}
+              >
+                {option.label}
+              </option>
+            ))}
+          </select>
           <button type="submit" class="btn btn-primary btn-sm">Apply</button>
         </form>
       </header>
+      <div class="flex flex-wrap gap-2">
+        <a
+          class={`btn btn-xs ${
+            selectedCategory ? "btn-outline" : "btn-primary"
+          }`}
+          href={buildProductsHref({
+            page: 1,
+            category: "",
+            query,
+            sort,
+          })}
+        >
+          All
+        </a>
+        {categories.map((category) => (
+          <a
+            class={`btn btn-xs ${
+              category === selectedCategory ? "btn-primary" : "btn-outline"
+            }`}
+            href={buildProductsHref({
+              page: 1,
+              category,
+              query,
+              sort,
+            })}
+            key={`chip-${category}`}
+          >
+            {category}
+          </a>
+        ))}
+      </div>
 
       {dbError && (
         <div class="alert alert-warning text-sm">
@@ -1009,7 +1101,7 @@ const ProductDetailPage = (
         ]}
       />
       <div class="grid gap-10 lg:grid-cols-2">
-        <div class="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm">
+        <div class="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm skeleton">
           <img
             src={getPrimaryImage(product.images)}
             alt={product.name}
@@ -2412,8 +2504,9 @@ const AdminProductFormPage = (
           <textarea
             class="textarea textarea-bordered min-h-[120px]"
             name="description"
-            value={values.description}
-          />
+          >
+            {values.description}
+          </textarea>
         </label>
         <label class="form-control w-full">
           <span class="label-text">Image URLs</span>
@@ -2421,8 +2514,9 @@ const AdminProductFormPage = (
             class="textarea textarea-bordered min-h-[120px]"
             name="images"
             placeholder="One URL per line"
-            value={values.images}
-          />
+          >
+            {values.images}
+          </textarea>
         </label>
         <div class="flex gap-2">
           <button type="submit" class="btn btn-primary btn-sm">
@@ -2594,12 +2688,37 @@ const parsePositiveInt = (value: string | undefined, fallback: number) => {
   return floored > 0 ? floored : fallback;
 };
 
+const productSortOptions = [
+  { value: "newest", label: "Newest" },
+  { value: "price-asc", label: "Price: Low to High" },
+  { value: "price-desc", label: "Price: High to Low" },
+  { value: "name-asc", label: "Name: A to Z" },
+  { value: "name-desc", label: "Name: Z to A" },
+] as const;
+
+const productSortValues = new Set(
+  productSortOptions.map((option) => option.value),
+);
+
+const normalizeSort = (value: string | undefined) => {
+  const trimmed = value?.trim() ?? "";
+  return productSortValues.has(trimmed) ? trimmed : "newest";
+};
+
 const buildProductsHref = (
-  options: { page: number; category: string; query: string },
+  options: {
+    page: number;
+    category: string;
+    query: string;
+    sort: string;
+  },
 ) => {
   const params = new URLSearchParams();
   if (options.query) params.set("q", options.query);
   if (options.category) params.set("category", options.category);
+  if (options.sort && options.sort !== "newest") {
+    params.set("sort", options.sort);
+  }
   if (options.page > 1) params.set("page", String(options.page));
   const search = params.toString();
   return search ? `/products?${search}` : "/products";
@@ -2689,10 +2808,28 @@ const parseProductForm = (form: Record<string, string>) => {
   };
 };
 
-const filterDemoCatalog = (options: { category: string; query: string }) => {
+const sortDemoCatalog = (items: DbProduct[], sort: string) => {
+  if (sort === "price-asc") {
+    return [...items].sort((a, b) => a.priceCents - b.priceCents);
+  }
+  if (sort === "price-desc") {
+    return [...items].sort((a, b) => b.priceCents - a.priceCents);
+  }
+  if (sort === "name-asc") {
+    return [...items].sort((a, b) => a.name.localeCompare(b.name));
+  }
+  if (sort === "name-desc") {
+    return [...items].sort((a, b) => b.name.localeCompare(a.name));
+  }
+  return items;
+};
+
+const filterDemoCatalog = (
+  options: { category: string; query: string; sort: string },
+) => {
   const normalizedQuery = options.query.trim().toLowerCase();
   const normalizedCategory = options.category.trim().toLowerCase();
-  return demoCatalog.filter((product) => {
+  const filtered = demoCatalog.filter((product) => {
     if (
       normalizedCategory &&
       product.category?.toLowerCase() !== normalizedCategory
@@ -2704,6 +2841,7 @@ const filterDemoCatalog = (options: { category: string; query: string }) => {
       .toLowerCase();
     return haystack.includes(normalizedQuery);
   });
+  return sortDemoCatalog(filtered, options.sort);
 };
 
 app.get("/", (c: Context) => {
@@ -2718,6 +2856,7 @@ app.get("/", (c: Context) => {
 app.get("/products", async (c: Context) => {
   const selectedCategory = (c.req.query("category") ?? "").trim();
   const query = (c.req.query("q") ?? "").trim();
+  const sort = normalizeSort(c.req.query("sort"));
   const pageSize = 12;
   let page = parsePositiveInt(c.req.query("page"), 1);
   const csrfToken = ensureCsrfToken(c);
@@ -2751,10 +2890,15 @@ app.get("/products", async (c: Context) => {
       offset: (page - 1) * pageSize,
       category: selectedCategory || null,
       query: query || null,
+      sort,
     });
   } catch (error) {
     dbError = true;
-    const filtered = filterDemoCatalog({ category: selectedCategory, query });
+    const filtered = filterDemoCatalog({
+      category: selectedCategory,
+      query,
+      sort,
+    });
     totalCount = filtered.length;
     totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
     if (page > totalPages) page = totalPages;
@@ -2766,6 +2910,7 @@ app.get("/products", async (c: Context) => {
       requestId: c.get("requestId"),
       category: selectedCategory || null,
       query: query || null,
+      sort,
     });
   }
 
@@ -2773,10 +2918,20 @@ app.get("/products", async (c: Context) => {
   const returnTo = `${requestUrl.pathname}${requestUrl.search}`;
 
   const prevHref = page > 1
-    ? buildProductsHref({ page: page - 1, category: selectedCategory, query })
+    ? buildProductsHref({
+      page: page - 1,
+      category: selectedCategory,
+      query,
+      sort,
+    })
     : null;
   const nextHref = page < totalPages
-    ? buildProductsHref({ page: page + 1, category: selectedCategory, query })
+    ? buildProductsHref({
+      page: page + 1,
+      category: selectedCategory,
+      query,
+      sort,
+    })
     : null;
 
   return c.render(
@@ -2785,6 +2940,7 @@ app.get("/products", async (c: Context) => {
       categories={categories}
       selectedCategory={selectedCategory}
       query={query}
+      sort={sort}
       page={page}
       totalPages={totalPages}
       totalCount={totalCount}

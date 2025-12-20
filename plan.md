@@ -63,9 +63,29 @@ Current state (done):
   call).
 - Keep docs aligned (README/DEPLOYMENT) with new flows/envs.
 
-## Stage 8 — Nice-to-haves
+## Stage 8 — Nice-to-haves (✅ done)
 
-- Image CDN/base URL support; skeleton loaders for products.
-- Search/sort enhancements (price, category chips).
-- Email notifications (order confirmation) behind a provider-agnostic interface.
-- Performance: HTTP caching for public assets, ETag/304 where safe.
+- [x] Image CDN/base URL support + product image skeleton styling.
+- [x] Search/sort enhancements (price/name) + category chips.
+- [x] HTTP caching headers for public assets + weak ETag/304 on `/static/*`.
+
+## Test Checklist (run before deploy)
+
+- Env: `.env` matches `.env.example` with `DATABASE_URL`, `COOKIE_SECRET`,
+  `APP_ENV`, and optional `IMAGE_BASE_URL`.
+- DB: `deno task db:init` then `deno task db:seed` (once per environment).
+- Warmup: `deno task warmup` (expect all OK).
+- Unit tests: `deno test -A`.
+- Smoke: `deno task smoke` (warmup + seed + cart/checkout dry-run).
+- Lint: `deno task lint`.
+
+Manual sanity checks:
+
+- `/` renders hero + featured products; add-to-cart works from home.
+- `/products` search, category chips, and sort (price/name) work.
+- `/products/:slug` renders detail + add-to-cart works.
+- `/cart` update quantity + clear cart work; CSRF failures show session expired.
+- `/auth/login` + demo accounts work after seeding.
+- `/account` profile + password + addresses work; logout + logout-all work.
+- `/admin` routes enforce roles; product CRUD + order status updates work.
+- `/health` returns status ok; `/health?db=1` returns `db: true`.

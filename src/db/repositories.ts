@@ -18,6 +18,7 @@ type ProductListOptions = {
   offset?: number;
   category?: string | null;
   query?: string | null;
+  sort?: string | null;
 };
 
 type ProductRow = {
@@ -377,6 +378,7 @@ export const productRepository = {
     const category = resolved.category ?? null;
     const query = resolved.query ?? null;
     const queryPattern = query ? `%${query}%` : null;
+    const sort = resolved.sort ?? "newest";
 
     const rows = await sql<ProductRow>`
       select
@@ -401,7 +403,12 @@ export const productRepository = {
           or name ilike ${queryPattern}
           or coalesce(description, '') ilike ${queryPattern}
         )
-      order by createdat desc
+      order by
+        case when ${sort} = 'price-asc' then pricecents end asc nulls last,
+        case when ${sort} = 'price-desc' then pricecents end desc nulls last,
+        case when ${sort} = 'name-asc' then name end asc nulls last,
+        case when ${sort} = 'name-desc' then name end desc nulls last,
+        createdat desc
       limit ${limit}
       offset ${offset};
     `;

@@ -6,7 +6,8 @@ Neon Postgres, and Stripe placeholders. Tooling uses pnpm for Tailwind.
 ## Quick start
 
 1. Install deps: `pnpm install` (Node + pnpm required).
-2. Copy `.env.example` to `.env` and fill values.
+2. Copy `.env.example` to `.env` and fill values (optional: `IMAGE_BASE_URL` to
+   prefix product images).
 3. Init DB schema: `deno task db:init` and optionally seed demo catalog
    `deno task db:seed`.
 4. Build CSS: `deno task dev:css` (pnpm-powered) or one-off
