@@ -10,7 +10,9 @@ import {
 Deno.test("parseEmail normalizes and validates", () => {
   const result = parseEmail("  Test@Example.com  ");
   assert(result.ok);
-  assertEquals(result.value, "test@example.com");
+  if (result.ok) {
+    assertEquals(result.value, "test@example.com");
+  }
 
   const invalid = parseEmail("invalid");
   assert(!invalid.ok);
@@ -22,15 +24,21 @@ Deno.test("string and number validators handle limits", () => {
 
   const positive = parsePositiveInt("3.9", "Qty");
   assert(positive.ok);
-  assertEquals(positive.value, 3);
+  if (positive.ok) {
+    assertEquals(positive.value, 3);
+  }
 
   const optionalEmpty = parseOptionalInt("", "Stock");
   assert(optionalEmpty.ok);
-  assertEquals(optionalEmpty.value, null);
+  if (optionalEmpty.ok) {
+    assertEquals(optionalEmpty.value, null);
+  }
 });
 
 Deno.test("parseMoneyCents converts dollars to cents", () => {
   const result = parseMoneyCents("12.34", "Price");
   assert(result.ok);
-  assertEquals(result.value, 1234);
+  if (result.ok) {
+    assertEquals(result.value, 1234);
+  }
 });

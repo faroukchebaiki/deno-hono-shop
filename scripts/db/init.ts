@@ -10,7 +10,7 @@ const statements = schema
   .filter((statement) => statement.length > 0);
 
 for (const statement of statements) {
-  await sql(statement);
+  await sql.query(statement);
 }
 
 console.log(`Applied ${statements.length} schema statements.`);

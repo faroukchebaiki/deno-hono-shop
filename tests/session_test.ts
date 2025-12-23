@@ -17,9 +17,11 @@ Deno.test("session tokens round-trip with version", async () => {
   const token = await createSessionToken("user-1", Role.ADMIN, 2, 60);
   const payload = await verifySessionToken(token);
   assert(payload);
-  assertEquals(payload.sub, "user-1");
-  assertEquals(payload.role, Role.ADMIN);
-  assertEquals(payload.ver, 2);
+  if (payload) {
+    assertEquals(payload.sub, "user-1");
+    assertEquals(payload.role, Role.ADMIN);
+    assertEquals(payload.ver, 2);
+  }
 });
 
 Deno.test("expired session tokens return null", async () => {

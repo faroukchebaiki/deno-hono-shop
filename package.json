@@ -5,16 +5,17 @@
   "packageManager": "pnpm@9.12.0",
   "type": "module",
   "scripts": {
-    "tailwind:dev": "tailwindcss -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css --watch",
-    "tailwind:build": "tailwindcss -c tailwind.config.ts -i ./src/styles/tailwind.css -o ./static/styles.css",
+    "tailwind:dev": "tailwindcss -i ./src/styles/tailwind.css -o ./static/styles.css --watch",
+    "tailwind:build": "tailwindcss -i ./src/styles/tailwind.css -o ./static/styles.css",
     "postinstall": "echo \"no-op postinstall\""
   },
   "dependencies": {
-    "@neondatabase/serverless": "0.8.1",
-    "stripe": "16.6.0"
+    "@neondatabase/serverless": "1.0.2",
+    "stripe": "20.1.0"
   },
   "devDependencies": {
-    "daisyui": "4.11.1",
-    "tailwindcss": "3.4.3"
+    "@tailwindcss/cli": "^4.1.18",
+    "daisyui": "5.5.14",
+    "tailwindcss": "4.1.18"
   }
 }

@@ -1,5 +1,24 @@
 {
   "version": "5",
+  "specifiers": {
+    "jsr:@hono/hono@^4.11.1": "4.11.1",
+    "jsr:@std/assert@^1.0.16": "1.0.16",
+    "jsr:@std/internal@^1.0.12": "1.0.12"
+  },
+  "jsr": {
+    "@hono/hono@4.11.1": {
+      "integrity": "28bb28c7322a1379e7132af05ef76aef09f86bb8cdd7077c67e004dea288ac0d"
+    },
+    "@std/assert@1.0.16": {
+      "integrity": "6a7272ed1eaa77defe76e5ff63ca705d9c495077e2d5fd0126d2b53fc5bd6532",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/internal@1.0.12": {
+      "integrity": "972a634fd5bc34b242024402972cd5143eac68d8dffaca5eaa4dba30ce17b027"
+    }
+  },
   "remote": {
     "https://deno.land/std@0.224.0/assert/_constants.ts": "a271e8ef5a573f1df8e822a6eb9d09df064ad66a4390f21b3e31f820a38e0975",
     "https://deno.land/std@0.224.0/assert/assert.ts": "09d30564c09de846855b7b071e62b5974b001bb72a4b797958fe0660e7849834",
@@ -99,15 +118,18 @@
   },
   "workspace": {
     "dependencies": [
-      "npm:@neondatabase/serverless@0.8.1",
-      "npm:stripe@16.6.0"
+      "jsr:@hono/hono@^4.11.1",
+      "jsr:@std/assert@^1.0.16",
+      "npm:@neondatabase/serverless@1.0.2",
+      "npm:stripe@20.1.0"
     ],
     "packageJson": {
       "dependencies": [
-        "npm:@neondatabase/serverless@0.8.1",
-        "npm:daisyui@4.11.1",
-        "npm:stripe@16.6.0",
-        "npm:tailwindcss@3.4.3"
+        "npm:@neondatabase/serverless@1.0.2",
+        "npm:@tailwindcss/cli@^4.1.18",
+        "npm:daisyui@5.5.14",
+        "npm:stripe@20.1.0",
+        "npm:tailwindcss@4.1.18"
       ]
     }
   }

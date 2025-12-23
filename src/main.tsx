@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Child } from "hono/jsx";
-import { jsxRenderer, serveStatic } from "hono/middleware";
+import { jsxRenderer } from "hono/jsx-renderer";
+import { serveStatic } from "hono/deno";
 import { loadConfig } from "./config/env.ts";
 import { authMiddleware, requireRole, requireUser } from "./middleware/auth.ts";
 import { authRoutes } from "./routes/auth.tsx";
